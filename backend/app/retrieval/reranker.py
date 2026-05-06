@@ -20,11 +20,17 @@ class Reranker:
         return cls._instance
 
     def __init__(self):
+        pass
+
+    def _ensure_model(self):
         if self._model is None:
-            self._model = FlagReranker(
-                settings.rerank_model,
-                use_fp16=True
-            )
+            with self._lock:
+                if self._model is None:
+                    self._model = FlagReranker(
+                        settings.rerank_model,
+                        use_fp16=True
+                    )
+        return self._model
 
     def rerank(
         self,
@@ -50,7 +56,7 @@ class Reranker:
         pairs = [[query, chunk["content"]] for chunk in chunks]
 
         # 计算重排序分数
-        scores = self._model.compute_score(pairs, normalize=True)
+        scores = self._ensure_model().compute_score(pairs, normalize=True)
 
         # 确保scores是列表
         if not isinstance(scores, list):
