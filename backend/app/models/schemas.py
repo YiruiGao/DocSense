@@ -12,6 +12,8 @@ class QueryOptions(BaseModel):
     use_rerank: bool = True
     use_query_rewrite: bool = False
     top_k: int = Field(default=3, ge=1, le=10)
+    namespace: str = "user"
+    corpus_id: Optional[str] = None
 
 
 class QueryRequest(BaseModel):
@@ -67,6 +69,8 @@ class DocumentInfo(BaseModel):
     file_size: int
     created_at: str  # 使用字符串格式 "YYYY-MM-DD HH:MM:SS"
     file_hash: Optional[str] = None
+    namespace: str = "user"
+    corpus_id: Optional[str] = None
 
 
 class DocumentUploadResponse(BaseModel):
@@ -105,6 +109,8 @@ class Chunk(BaseModel):
     chunk_index: int
     token_count: int
     source: str
+    namespace: str = "user"
+    corpus_id: Optional[str] = None
     embedding: Optional[List[float]] = None
 
     class Config:

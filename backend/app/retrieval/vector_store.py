@@ -63,7 +63,9 @@ class VectorStore:
                 "page_number": chunk.page_number,
                 "chunk_index": chunk.chunk_index,
                 "token_count": chunk.token_count,
-                "source": chunk.source
+                "source": chunk.source,
+                "namespace": chunk.namespace,
+                "corpus_id": chunk.corpus_id or "",
             }
             for chunk in chunks
         ]
@@ -83,6 +85,8 @@ class VectorStore:
         query: str,
         top_k: int = 10,
         document_id: Optional[str] = None,
+        namespace: Optional[str] = None,
+        corpus_id: Optional[str] = None,
         min_score: float = 0.0
     ) -> List[Dict[str, Any]]:
         """
@@ -101,9 +105,11 @@ class VectorStore:
         query_embedding = embedding_model.encode(query)
 
         # 构建过滤条件
-        where_filter = None
-        if document_id:
-            where_filter = {"document_id": document_id}
+        where_filter = self._where_filter(
+            document_id=document_id,
+            namespace=namespace,
+            corpus_id=corpus_id,
+        )
 
         # 执行搜索
         results = self.collection.query(
@@ -137,12 +143,16 @@ class VectorStore:
         self,
         query_embedding: List[float],
         top_k: int = 10,
-        document_id: Optional[str] = None
+        document_id: Optional[str] = None,
+        namespace: Optional[str] = None,
+        corpus_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """通过embedding向量搜索"""
-        where_filter = None
-        if document_id:
-            where_filter = {"document_id": document_id}
+        where_filter = self._where_filter(
+            document_id=document_id,
+            namespace=namespace,
+            corpus_id=corpus_id,
+        )
 
         results = self.collection.query(
             query_embeddings=[query_embedding],
@@ -215,12 +225,60 @@ class VectorStore:
 
         return chunks
 
+    def update_document_metadata(
+        self,
+        document_id: str,
+        namespace: str,
+        corpus_id: Optional[str] = None,
+    ) -> int:
+        """Backfill namespace/corpus metadata for existing chunks."""
+        results = self.collection.get(
+            where={"document_id": document_id},
+            include=["metadatas"]
+        )
+        if not results or not results.get("ids"):
+            return 0
+
+        metadatas = []
+        changed = 0
+        for metadata in results.get("metadatas", []):
+            item = dict(metadata or {})
+            next_corpus_id = corpus_id or ""
+            if item.get("namespace") != namespace or item.get("corpus_id", "") != next_corpus_id:
+                changed += 1
+            item["namespace"] = namespace
+            item["corpus_id"] = next_corpus_id
+            metadatas.append(item)
+
+        if changed:
+            self.collection.update(ids=results["ids"], metadatas=metadatas)
+        return changed
+
     def count(self, document_id: Optional[str] = None) -> int:
         """统计块数量"""
         if document_id:
             results = self.collection.get(where={"document_id": document_id})
             return len(results['ids']) if results and results['ids'] else 0
         return self.collection.count()
+
+    @staticmethod
+    def _where_filter(
+        document_id: Optional[str] = None,
+        namespace: Optional[str] = None,
+        corpus_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        filters = []
+        if document_id:
+            filters.append({"document_id": document_id})
+        if namespace:
+            filters.append({"namespace": namespace})
+        if corpus_id:
+            filters.append({"corpus_id": corpus_id})
+        if not filters:
+            return None
+        if len(filters) == 1:
+            return filters[0]
+        return {"$and": filters}
 
     def reset(self) -> None:
         """重置向量存储"""

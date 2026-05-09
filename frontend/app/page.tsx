@@ -77,13 +77,13 @@ export default function RAGPage() {
   const selectedDocument = documents.find(doc => doc.id === selectedDocumentId) || null
   const activeDocumentId = scopeMode === 'document' ? selectedDocumentId : null
   const exampleQuestions = [
-    '这份文档的核心观点是什么？',
-    '文档里有哪些关键结论？',
-    '请根据文档总结主要信息'
+    'What is the core idea of this document?',
+    'What are the key conclusions in the document?',
+    'Summarize the main information from the document.'
   ]
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
 
-  // 加载文档列表
+  // Load document list.
   const loadDocuments = async () => {
     try {
       setIsLoadingDocs(true)
@@ -104,26 +104,26 @@ export default function RAGPage() {
     }
   }
 
-  // 初始加载文档
+  // Initial document load.
   useEffect(() => {
     loadDocuments()
   }, [])
 
-  // 自动滚动到底部
+  // Auto-scroll to the latest message.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // 上传文档
+  // Upload document.
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
-    // 检查文件类型
+    // Validate file type.
     const ext = file.name.toLowerCase().split('.').pop()
     const supportedTypes = ['pdf', 'txt', 'md']
     if (!ext || !supportedTypes.includes(ext)) {
-      setUploadStatus({ type: 'error', message: '只支持 PDF、TXT、MD 文件' })
+      setUploadStatus({ type: 'error', message: 'Only PDF, TXT, and MD files are supported.' })
       return
     }
 
@@ -134,7 +134,7 @@ export default function RAGPage() {
       const formData = new FormData()
       formData.append('file', file)
 
-      // 调用Python后端API
+      // Call the Python backend API.
       const response = await fetch(`${backendUrl}/documents/upload`, {
         method: 'POST',
         body: formData
@@ -143,14 +143,14 @@ export default function RAGPage() {
       const data = await response.json()
 
       if (data.success) {
-        setUploadStatus({ type: 'success', message: `文档 "${data.data.name}" 上传成功，共 ${data.data.pages} 页， ${data.data.chunk_count} 个分块` })
+        setUploadStatus({ type: 'success', message: `Document "${data.data.name}" uploaded successfully: ${data.data.pages} pages, ${data.data.chunk_count} chunks.` })
         setSelectedDocumentId(data.data.id)
         loadDocuments()
       } else {
-        setUploadStatus({ type: 'error', message: data.error || '上传失败' })
+        setUploadStatus({ type: 'error', message: data.error || 'Upload failed.' })
       }
     } catch (error) {
-      setUploadStatus({ type: 'error', message: '上传失败，请重试' })
+      setUploadStatus({ type: 'error', message: 'Upload failed. Please try again.' })
     } finally {
       setIsUploading(false)
       if (fileInputRef.current) {
@@ -159,7 +159,7 @@ export default function RAGPage() {
     }
   }
 
-  // 删除文档
+  // Delete document.
   const handleDelete = async (id: string) => {
     try {
       const response = await fetch(`${backendUrl}/documents/${id}`, {
@@ -177,7 +177,7 @@ export default function RAGPage() {
     }
   }
 
-  // 发送消息
+  // Send message.
   const handleSend = async (questionOverride?: string) => {
     const question = (questionOverride || inputValue).trim()
     if (!question || isSending) return
@@ -200,7 +200,7 @@ export default function RAGPage() {
     setIsSending(true)
 
     try {
-      // 调用Python后端API
+      // Call the Python backend API.
       const response = await fetch(`${backendUrl}/chat/query`, {
         method: 'POST',
         headers: {
@@ -240,7 +240,7 @@ export default function RAGPage() {
         const errorMessage: Message = {
           id: (Date.now() + 2).toString(),
           role: 'assistant',
-          content: data.error || '回答生成失败，请重试'
+          content: data.error || 'Answer generation failed. Please try again.'
         }
         setMessages(prev => prev.filter(m => !m.isLoading).concat(errorMessage))
       }
@@ -248,7 +248,7 @@ export default function RAGPage() {
       const errorMessage: Message = {
         id: (Date.now() + 2).toString(),
         role: 'assistant',
-        content: '网络错误，请重试'
+        content: 'Network error. Please try again.'
       }
       setMessages(prev => prev.filter(m => !m.isLoading).concat(errorMessage))
     } finally {
@@ -258,7 +258,7 @@ export default function RAGPage() {
 
   return (
     <div className="min-h-screen bg-[#f3f6f5] text-slate-900">
-      {/* 顶部标题栏 */}
+      {/* Header */}
       <header className="border-b border-slate-200 bg-[#fbfcfb]/90 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -266,8 +266,10 @@ export default function RAGPage() {
               <div className="w-10 h-10 rounded-lg bg-slate-950 flex items-center justify-center">
                 <Search className="w-5 h-5 text-amber-300" />
               </div>
-              <div>
-                <h1 className="text-xl font-semibold tracking-tight text-slate-950">DocSense</h1>
+              <div className="min-w-0">
+	                <div className="flex flex-wrap items-center gap-2">
+	                  <h1 className="text-xl font-semibold tracking-tight text-slate-950">DocSense</h1>
+	                </div>
                 <p className="text-sm text-slate-500">Document-grounded RAG with hybrid retrieval and reranking</p>
               </div>
             </div>
@@ -278,36 +280,27 @@ export default function RAGPage() {
               >
                 RAGOps Console
               </a>
-              <Badge variant="outline" className="border-slate-300 bg-white/70">
-                ChromaDB
-              </Badge>
-              <Badge variant="outline" className="border-slate-300 bg-white/70">
-                BM25 + RRF
-              </Badge>
-              <Badge variant="outline" className="border-slate-300 bg-white/70">
-                Reranker
-              </Badge>
             </div>
           </div>
         </div>
       </header>
 
       <main className="container mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* 左侧：文档管理 */}
-          <div className="lg:col-span-1">
-            <Card className="border border-slate-200 shadow-sm bg-[#fbfcfb]">
-              <CardHeader className="pb-3">
+        <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-3">
+          {/* Document library */}
+          <div className="lg:col-span-1 min-h-0">
+            <Card className="flex h-[calc(100vh-180px)] min-h-[640px] flex-col border border-slate-200 bg-[#fbfcfb] shadow-sm">
+              <CardHeader className="flex-shrink-0 pb-3">
                 <CardTitle className="flex items-center gap-2">
                   <FileText className="w-5 h-5 text-blue-500" />
                   Document Library
                 </CardTitle>
                 <CardDescription>
-                上传 PDF/TXT/MD，系统会提取文本、分块并建立向量与 BM25 索引
+                Upload PDF, TXT, or MD files. DocSense extracts text, creates chunks, and builds vector and BM25 indexes.
               </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {/* 上传区域 */}
+              <CardContent className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+                {/* Upload area */}
                 <div className="relative">
                   <input
                     ref={fileInputRef}
@@ -317,32 +310,34 @@ export default function RAGPage() {
                     className="hidden"
                     id="file-upload"
                   />
-                  <label
-                    htmlFor="file-upload"
-                    className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-xl cursor-pointer transition-all
-                      ${isUploading
-                        ? 'border-blue-300 bg-blue-50'
-                        : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/50'
+	                  <label
+	                    htmlFor="file-upload"
+	                    className={`flex w-full items-center justify-center gap-3 rounded-lg border border-dashed px-3 py-3 cursor-pointer transition-all
+	                      ${isUploading
+	                        ? 'border-blue-300 bg-blue-50'
+	                        : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/50'
                       }`}
-                  >
-                    {isUploading ? (
-                      <div className="flex flex-col items-center gap-2">
-                        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-                        <span className="text-sm text-blue-600">处理中...</span>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center gap-2">
-                        <Upload className="w-8 h-8 text-slate-400" />
-                        <span className="text-sm text-slate-500">点击上传文档</span>
-                        <span className="text-xs text-slate-400">支持 PDF、TXT、MD 格式</span>
-                      </div>
-                    )}
-                  </label>
+	                  >
+	                    {isUploading ? (
+	                      <div className="flex items-center gap-2">
+	                        <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />
+	                        <span className="text-sm text-blue-600">Processing...</span>
+	                      </div>
+	                    ) : (
+	                      <div className="flex min-w-0 items-center gap-3">
+	                        <Upload className="h-5 w-5 flex-shrink-0 text-slate-400" />
+	                        <div className="min-w-0">
+	                          <span className="block truncate text-sm text-slate-600">Click to upload a document</span>
+	                          <span className="block truncate text-xs text-slate-400">PDF, TXT, or MD</span>
+	                        </div>
+	                      </div>
+	                    )}
+	                  </label>
                 </div>
 
-                {/* 上传状态 */}
+                {/* Upload status */}
                 {uploadStatus.type && (
-                  <div className={`flex items-center gap-2 p-3 rounded-lg text-sm
+	                  <div className={`flex items-center gap-2 rounded-lg p-2 text-sm
                     ${uploadStatus.type === 'success'
                       ? 'bg-green-50 text-green-700'
                       : 'bg-red-50 text-red-700'
@@ -359,8 +354,8 @@ export default function RAGPage() {
 
                 <Separator />
 
-                <div className="rounded-lg border border-slate-200 bg-white p-3">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+	                <div className="rounded-lg border border-slate-200 bg-white p-2">
+	                  <div className="mb-1.5 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
                     <Database className="h-3.5 w-3.5" />
                     Scope
                   </div>
@@ -380,39 +375,39 @@ export default function RAGPage() {
                 </div>
 
                 {scopeMode === 'all' ? (
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 p-3">
+	                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 p-2.5">
                     <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-emerald-700">
                       <Database className="h-3.5 w-3.5" />
                       Current context
                     </div>
-                    <p className="mt-1 text-sm font-medium text-emerald-950">全部文档</p>
-                    <div className="mt-2 flex items-center gap-3 text-xs text-emerald-700">
+	                    <p className="mt-0.5 text-sm font-medium text-emerald-950">All documents</p>
+	                    <div className="mt-1 flex items-center gap-3 text-xs text-emerald-700">
                       <span>{documents.length} documents</span>
                       <span>{documents.reduce((sum, doc) => sum + doc.chunk_count, 0)} chunks</span>
                     </div>
                   </div>
                 ) : selectedDocument && (
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 p-3">
+	                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 p-2.5">
                     <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-emerald-700">
                       <Database className="h-3.5 w-3.5" />
                       Current context
                     </div>
-                    <p className="mt-1 truncate text-sm font-medium text-emerald-950">{selectedDocument.name}</p>
-                    <div className="mt-2 flex items-center gap-3 text-xs text-emerald-700">
-                      <span>{selectedDocument.pages} 页</span>
+	                    <p className="mt-0.5 truncate text-sm font-medium text-emerald-950">{selectedDocument.name}</p>
+	                    <div className="mt-1 flex items-center gap-3 text-xs text-emerald-700">
+                      <span>{selectedDocument.pages} pages</span>
                       <span>{selectedDocument.chunk_count} chunks</span>
                     </div>
                   </div>
                 )}
 
-                {/* 文档列表 */}
-                <div className="space-y-2">
+                {/* Document list */}
+                <div className="flex min-h-0 flex-1 flex-col space-y-2">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500">已上传文档</span>
+                    <span className="text-slate-500">Uploaded documents</span>
                     <Badge variant="secondary">{documents.length}</Badge>
                   </div>
 
-                  <ScrollArea className="h-[300px] pr-3">
+                  <ScrollArea className="min-h-0 flex-1 pr-3">
                     {isLoadingDocs ? (
                       <div className="flex items-center justify-center py-8">
                         <Loader2 className="w-6 h-6 text-slate-400 animate-spin" />
@@ -420,8 +415,8 @@ export default function RAGPage() {
                     ) : documents.length === 0 ? (
                       <div className="text-center py-8 text-slate-400">
                         <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">暂无文档</p>
-                        <p className="text-xs mt-1">上传文档开始使用</p>
+                        <p className="text-sm">No documents yet</p>
+                        <p className="text-xs mt-1">Upload a document to get started</p>
                       </div>
                     ) : (
                       <div className="space-y-2">
@@ -443,9 +438,9 @@ export default function RAGPage() {
                                 </span>
                               </div>
                               <div className="flex items-center gap-2 mt-1 text-xs text-slate-400">
-                                <span>{doc.pages} 页</span>
+                                <span>{doc.pages} pages</span>
                                 <span>•</span>
-                                <span>{doc.chunk_count} 个分块</span>
+                                <span>{doc.chunk_count} chunks</span>
                               </div>
                             </div>
                             <Button
@@ -470,9 +465,9 @@ export default function RAGPage() {
 
           </div>
 
-          {/* 右侧：对话区域 */}
-          <div className="lg:col-span-2">
-            <Card className="border border-slate-200 shadow-sm bg-[#fbfcfb] h-[calc(100vh-180px)] flex flex-col">
+          {/* Q&A area */}
+          <div className="lg:col-span-2 min-h-0">
+            <Card className="flex h-[calc(100vh-180px)] min-h-[640px] flex-col border border-slate-200 bg-[#fbfcfb] shadow-sm">
               <CardHeader className="pb-3 flex-shrink-0">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
@@ -482,10 +477,10 @@ export default function RAGPage() {
                     </CardTitle>
                     <CardDescription>
                       {scopeMode === 'all'
-                        ? `当前基于全部 ${documents.length} 个文档回答`
+                        ? `Answering against all ${documents.length} documents`
                         : selectedDocument
-                          ? `当前基于 "${selectedDocument.name}" 回答`
-                          : '请选择或上传文档后开始问答'}
+                          ? `Answering against "${selectedDocument.name}"`
+                          : 'Select or upload a document to start Q&A'}
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -496,7 +491,7 @@ export default function RAGPage() {
               </CardHeader>
 
               <CardContent className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                {/* 消息列表 */}
+                {/* Message list */}
                 <ScrollArea className="flex-1 pr-3 mb-4 h-0">
                   {messages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center py-12">
@@ -505,7 +500,7 @@ export default function RAGPage() {
                       </div>
                       <h3 className="text-lg font-medium text-slate-800 mb-2">Ask against the selected document</h3>
                       <p className="text-sm text-slate-400 max-w-xs">
-                        上传并选择文档后，系统会检索证据片段、重排序，并基于来源回答
+                        Upload and select a document. The system retrieves evidence chunks, reranks them, and answers with citations.
                       </p>
                       {documents.length > 0 && (
                         <div className="mt-5 flex flex-wrap justify-center gap-2">
@@ -591,7 +586,7 @@ export default function RAGPage() {
                               </div>
                             )}
 
-                            {/* 引用来源 */}
+                            {/* Evidence sources */}
                             {message.sources && message.sources.length > 0 && (
                               <div className="mt-2 max-w-[85%]">
                                 <p className="text-xs text-slate-400 mb-1">Evidence sources</p>
@@ -602,19 +597,9 @@ export default function RAGPage() {
                                       className="text-xs bg-white border border-slate-200 rounded-lg p-3"
                                     >
                                       <div className="flex flex-wrap items-center gap-2 mb-1">
-                                        {source.document_name && (
-                                          <span className="max-w-[180px] truncate text-slate-500">
-                                            {source.document_name}
-                                          </span>
-                                        )}
                                         <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                                          第{source.page_number}页
+                                          {source.document_name || `page ${source.page_number}`}
                                         </Badge>
-                                        {typeof source.chunk_index === 'number' && (
-                                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                                            chunk {source.chunk_index + 1}
-                                          </Badge>
-                                        )}
                                         <span className="text-slate-400">score {(source.score * 100).toFixed(0)}%</span>
                                       </div>
                                       <p className="text-slate-600 leading-relaxed">{source.content}</p>
@@ -631,7 +616,7 @@ export default function RAGPage() {
                   )}
                 </ScrollArea>
 
-                {/* 输入区域 */}
+                {/* Input area */}
                 <div className="flex gap-2 flex-shrink-0">
                   <Input
                     value={inputValue}
@@ -642,7 +627,7 @@ export default function RAGPage() {
                         handleSend()
                       }
                     }}
-                    placeholder={scopeMode === 'all' ? '输入一个基于全部文档的问题...' : selectedDocument ? '输入一个基于当前文档的问题...' : '请先上传或选择文档'}
+                    placeholder={scopeMode === 'all' ? 'Ask a question across all documents...' : selectedDocument ? 'Ask a question about the current document...' : 'Upload or select a document first'}
                     className="flex-1"
                     disabled={isSending || documents.length === 0 || (scopeMode === 'document' && !selectedDocumentId)}
                   />
@@ -660,7 +645,7 @@ export default function RAGPage() {
                 </div>
                 {scopeMode === 'document' && !selectedDocumentId && (
                   <p className="text-xs text-slate-400 mt-2 text-center">
-                    请先上传或选择一个文档，问答会限定在当前文档范围内
+                    Upload or select a document first. Q&A will be scoped to the current document.
                   </p>
                 )}
               </CardContent>

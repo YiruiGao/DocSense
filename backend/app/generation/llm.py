@@ -132,32 +132,33 @@ class ChatLLM:
         Returns:
             str: 带引用的回答
         """
-        # 构建上下文
+        # Build the context sent to the model. Keep citations stable as [1], [2], etc.
         context_parts = []
         for i, chunk in enumerate(chunks, 1):
             page_num = chunk.get("metadata", {}).get("page_number", chunk.get("page_number", "?"))
             content = chunk.get("content", "")
             if len(content) > settings.llm_context_chars_per_chunk:
                 content = content[:settings.llm_context_chars_per_chunk] + "..."
-            context_parts.append(f"[{i}] 第{page_num}页：{content}")
+            context_parts.append(f"[{i}] Page {page_num}: {content}")
 
         context = "\n".join(context_parts)
 
-        system_prompt = """你是一个准确的问答助手。基于提供的文档片段回答问题。
+        system_prompt = """You are an accurate question-answering assistant. Answer the user's question using only the provided document snippets.
 
-严格要求：
-1. 只使用提供的文档内容回答
-2. 必须在回答中标注引用来源，格式为 [1] [2] 等
-3. 如果文档中没有相关信息，明确说"文档中没有相关信息"
-4. 不要编造或推断任何内容
-5. 回答要简洁准确"""
+Requirements:
+1. Answer in English only, regardless of the language of the source document or the user question.
+2. Use only the provided document content.
+3. Cite sources inline with citation markers such as [1] or [2].
+4. If the document does not contain relevant information, say: "The document does not contain relevant information."
+5. Do not fabricate or infer unsupported details.
+6. Keep the answer concise and accurate."""
 
-        user_prompt = f"""文档片段：
+        user_prompt = f"""Document snippets:
 {context}
 
-问题：{question}
+Question: {question}
 
-请直接回答问题，在相关内容处标注引用编号如 [1][2]。"""
+Answer the question directly in English. Add citation markers such as [1][2] where relevant."""
 
         return await self.generate(
             prompt=user_prompt,
@@ -176,14 +177,14 @@ class ChatLLM:
         Returns:
             str: 改写后的查询
         """
-        system_prompt = """你是一个查询优化助手。将用户的问题改写成更适合文档检索的查询语句。
-要求：
-1. 保持原意
-2. 使用更精确的关键词
-3. 只返回改写后的查询，不要其他内容"""
+        system_prompt = """You are a query optimization assistant. Rewrite the user's question into an English retrieval query that is better suited for document search.
+Requirements:
+1. Preserve the original meaning.
+2. Use precise keywords.
+3. Return only the rewritten English query with no extra text."""
 
         return await self.generate(
-            prompt=f"原问题：{query}\n\n改写后：",
+            prompt=f"Original question: {query}\n\nRewritten English query:",
             system_prompt=system_prompt,
             temperature=0.3,
             max_tokens=200

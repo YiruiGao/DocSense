@@ -23,6 +23,8 @@ class HybridSearch:
         query: str,
         top_k: int = 10,
         document_id: Optional[str] = None,
+        namespace: Optional[str] = None,
+        corpus_id: Optional[str] = None,
         use_rerank: bool = False
     ) -> List[Dict[str, Any]]:
         """
@@ -41,14 +43,18 @@ class HybridSearch:
         vector_results = vector_store.search(
             query=query,
             top_k=top_k * 2,  # 获取更多候选
-            document_id=document_id
+            document_id=document_id,
+            namespace=namespace,
+            corpus_id=corpus_id,
         )
 
         # 2. BM25 检索
         bm25_results = bm25_search.search(
             query=query,
             top_k=top_k * 2,
-            document_id=document_id
+            document_id=document_id,
+            namespace=namespace,
+            corpus_id=corpus_id,
         )
 
         # 3. RRF 融合
@@ -132,26 +138,34 @@ class HybridSearch:
         self,
         query: str,
         top_k: int = 10,
-        document_id: Optional[str] = None
+        document_id: Optional[str] = None,
+        namespace: Optional[str] = None,
+        corpus_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """仅使用向量检索（baseline）"""
         return vector_store.search(
             query=query,
             top_k=top_k,
-            document_id=document_id
+            document_id=document_id,
+            namespace=namespace,
+            corpus_id=corpus_id,
         )
 
     def bm25_only(
         self,
         query: str,
         top_k: int = 10,
-        document_id: Optional[str] = None
+        document_id: Optional[str] = None,
+        namespace: Optional[str] = None,
+        corpus_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """仅使用BM25检索"""
         return bm25_search.search(
             query=query,
             top_k=top_k,
-            document_id=document_id
+            document_id=document_id,
+            namespace=namespace,
+            corpus_id=corpus_id,
         )
 
 

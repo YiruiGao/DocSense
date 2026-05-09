@@ -6,14 +6,41 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException
 
 from app.api.chat import _query_cache
-from app.api.documents import _documents_store
+from app.api.documents import index_evaluation_document
+from app.common.config import settings
 from app.evaluation import dataset_store, run_store
 from app.evaluation.evaluators.retrieval import RetrievalComparisonEvaluator
-from app.evaluation.models import MethodResult
-from app.evaluation.test_cases import TestCaseSet
+from app.evaluation.models import MethodResult, TestCaseSet
 from app.models.schemas import EvaluationRequest, EvaluationRunResponse
 
 router = APIRouter(tags=["evaluation"])
+
+_EVALUATION_EXTENSIONS = {".pdf", ".txt", ".md"}
+
+
+def _ensure_evaluation_corpus_indexed(corpus_id: str) -> list[Dict[str, Any]]:
+    corpus_dir = settings.eval_corpora_dir / corpus_id
+    if not corpus_dir.exists() or not corpus_dir.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail=f"评测语料不存在: data/eval_corpora/{corpus_id}",
+        )
+
+    files = [
+        path
+        for path in sorted(corpus_dir.iterdir())
+        if path.is_file() and path.suffix.lower() in _EVALUATION_EXTENSIONS
+    ]
+    if not files:
+        raise HTTPException(
+            status_code=400,
+            detail=f"评测语料没有可索引文档: data/eval_corpora/{corpus_id}",
+        )
+
+    return [
+        index_evaluation_document(file_path=path, corpus_id=corpus_id).model_dump()
+        for path in files
+    ]
 
 
 def _method_metrics(method_result: MethodResult) -> Dict[str, Any]:
@@ -50,18 +77,17 @@ def _method_results(method_result: MethodResult) -> list[Dict[str, Any]]:
 @router.post("/run", response_model=EvaluationRunResponse)
 async def run_evaluation(request: EvaluationRequest):
     """Run retrieval evaluation across selected methods."""
-    if not _documents_store:
-        raise HTTPException(status_code=400, detail="请先上传文档")
-
-    doc_id = request.document_id
-    if doc_id and doc_id not in _documents_store:
-        raise HTTPException(status_code=404, detail="文档不存在")
-
     methods = request.methods or ["baseline", "hybrid", "hybrid_rerank"]
     dataset_id = request.test_set_id or "default"
     dataset = dataset_store.get_dataset(dataset_id)
     if not dataset:
         raise HTTPException(status_code=404, detail="评测集不存在")
+    corpus_id = dataset.get("corpus_id")
+    if not corpus_id:
+        raise HTTPException(status_code=400, detail="评测集未配置 corpus_id")
+
+    indexed_documents = _ensure_evaluation_corpus_indexed(corpus_id)
+    doc_id = None
 
     test_cases = dataset_store.cases_as_test_cases(dataset, document_id=doc_id)
     if not test_cases:
@@ -83,6 +109,8 @@ async def run_evaluation(request: EvaluationRequest):
             methods=methods,
             test_set=test_set,
             document_id=doc_id,
+            namespace="evaluation",
+            corpus_id=corpus_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -102,11 +130,15 @@ async def run_evaluation(request: EvaluationRequest):
         "dataset_id": dataset.get("dataset_id"),
         "dataset_name": dataset.get("name"),
         "document_id": doc_id,
-        "document_name": _documents_store[doc_id].name if doc_id else "全部文档",
+        "corpus_id": corpus_id,
+        "document_name": f"evaluation corpus: {corpus_id}",
         "methods": methods,
         "case_count": len(test_cases),
         "strategy_config": {
             "methods": methods,
+            "namespace": "evaluation",
+            "corpus_id": corpus_id,
+            "indexed_documents": indexed_documents,
         },
         "status": "success",
         "duration_seconds": round(time.time() - started_at, 3),
@@ -122,6 +154,7 @@ async def run_evaluation(request: EvaluationRequest):
             "dataset_id": dataset.get("dataset_id"),
             "dataset_name": dataset.get("name"),
             "document_id": doc_id,
+            "corpus_id": corpus_id,
             "document_name": run["document_name"],
             "methods": methods,
             "case_count": run["case_count"],

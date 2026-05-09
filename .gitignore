@@ -85,6 +85,7 @@ local-*
 .z-ai-config
 dev.log
 server.log
+demo-docs/
 
 # 测试和临时文件
 test/

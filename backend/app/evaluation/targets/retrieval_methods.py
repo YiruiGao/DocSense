@@ -19,18 +19,34 @@ class RetrievalMethodTarget:
         query: str,
         top_k: int,
         document_id: Optional[str],
+        namespace: Optional[str] = None,
+        corpus_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         if self.method == "baseline":
-            return vector_store.search(query=query, top_k=top_k, document_id=document_id)
+            return vector_store.search(
+                query=query,
+                top_k=top_k,
+                document_id=document_id,
+                namespace=namespace,
+                corpus_id=corpus_id,
+            )
 
         if self.method == "hybrid":
-            return hybrid_search.search(query=query, top_k=top_k, document_id=document_id)
+            return hybrid_search.search(
+                query=query,
+                top_k=top_k,
+                document_id=document_id,
+                namespace=namespace,
+                corpus_id=corpus_id,
+            )
 
         if self.method == "hybrid_rerank":
             candidates = hybrid_search.search(
                 query=query,
                 top_k=top_k * 2,
                 document_id=document_id,
+                namespace=namespace,
+                corpus_id=corpus_id,
             )
             return reranker.rerank(query=query, chunks=candidates, top_k=top_k)
 

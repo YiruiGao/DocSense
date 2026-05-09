@@ -27,6 +27,8 @@ logger = get_logger(__name__)
 
 router = APIRouter(tags=["chat"])
 
+_ENGLISH_ANSWER_CACHE_PREFIX = "answer_language:en"
+
 
 def _bounded_score(value: float) -> float:
     """Keep source scores compatible with the public response schema."""
@@ -205,7 +207,7 @@ def _empty_answer_response(
         }
     )
     response_data = {
-        "answer": "文档中没有足够相关的信息来回答这个问题。",
+        "answer": "The document does not contain enough relevant information to answer this question.",
         "sources": [],
         "metadata": metadata.model_dump()
     }
@@ -228,6 +230,9 @@ async def query(request: QueryRequest):
     start_time = time.time()
     logger.info(f"收到查询请求: question={request.question[:50]}...")
     options = request.options or QueryOptions()
+    namespace = options.namespace or "user"
+    corpus_id = options.corpus_id
+    cache_question = f"{_ENGLISH_ANSWER_CACHE_PREFIX}\nnamespace:{namespace}\ncorpus:{corpus_id or ''}\n{request.question}"
     trace = trace_store.start_trace(
         question=request.question,
         document_id=request.document_id,
@@ -235,7 +240,7 @@ async def query(request: QueryRequest):
     )
 
     # 检查缓存
-    cached = _query_cache.get(request.question, request.document_id)
+    cached = _query_cache.get(cache_question, request.document_id)
     if cached:
         logger.info("命中缓存")
         cached = {
@@ -285,6 +290,8 @@ async def query(request: QueryRequest):
                 query=request.question,
                 top_k=candidate_top_k * 2,
                 document_id=request.document_id,
+                namespace=namespace,
+                corpus_id=corpus_id,
             )
             trace_store.add_span(
                 trace,
@@ -299,6 +306,8 @@ async def query(request: QueryRequest):
                 query=request.question,
                 top_k=candidate_top_k * 2,
                 document_id=request.document_id,
+                namespace=namespace,
+                corpus_id=corpus_id,
             )
             trace_store.add_span(
                 trace,
@@ -341,7 +350,9 @@ async def query(request: QueryRequest):
             results = vector_store.search(
                 query=request.question,
                 top_k=candidate_top_k,
-                document_id=request.document_id
+                document_id=request.document_id,
+                namespace=namespace,
+                corpus_id=corpus_id,
             )
             method_name = "vector_search"
             trace_candidates.extend([
@@ -381,7 +392,7 @@ async def query(request: QueryRequest):
                 final_context=[],
                 sources=[],
             )
-            _query_cache.set(request.question, response.data, request.document_id)
+            _query_cache.set(cache_question, response.data, request.document_id)
             return response
 
         # Rerank
@@ -430,7 +441,7 @@ async def query(request: QueryRequest):
                 final_context=[],
                 sources=[],
             )
-            _query_cache.set(request.question, response.data, request.document_id)
+            _query_cache.set(cache_question, response.data, request.document_id)
             return response
 
         logger.info(f"检索完成: {len(results)} 个结果")
@@ -459,7 +470,7 @@ async def query(request: QueryRequest):
             )
             if not answer:
                 logger.warning("LLM 返回空内容")
-                answer = "文档中没有足够相关的信息来回答这个问题。"
+                answer = "The document does not contain enough relevant information to answer this question."
             logger.info(f"LLM 回答生成成功: {len(answer)} 字符")
         except Exception as e:
             logger.error(f"LLM 调用失败: {str(e)}")
@@ -516,7 +527,7 @@ async def query(request: QueryRequest):
         )
 
         # 缓存结果
-        _query_cache.set(request.question, response_data, request.document_id)
+        _query_cache.set(cache_question, response_data, request.document_id)
         logger.info(f"查询完成: 总耗时 {response_time:.2f}s")
 
         return QueryResponse(success=True, data=response_data)
@@ -542,6 +553,8 @@ async def search_only(request: QueryRequest):
     logger.info(f"收到检索请求: question={request.question[:50]}...")
 
     options = request.options or QueryOptions()
+    namespace = options.namespace or "user"
+    corpus_id = options.corpus_id
     use_hybrid = options.use_hybrid_search
     use_rerank = options.use_rerank
     top_k = options.top_k
@@ -555,7 +568,9 @@ async def search_only(request: QueryRequest):
             results = hybrid_search.search(
                 query=request.question,
                 top_k=candidate_top_k,
-                document_id=request.document_id
+                document_id=request.document_id,
+                namespace=namespace,
+                corpus_id=corpus_id,
             )
             method_name = "hybrid_search"
         else:
@@ -563,7 +578,9 @@ async def search_only(request: QueryRequest):
             results = vector_store.search(
                 query=request.question,
                 top_k=candidate_top_k,
-                document_id=request.document_id
+                document_id=request.document_id,
+                namespace=namespace,
+                corpus_id=corpus_id,
             )
             method_name = "vector_search"
 

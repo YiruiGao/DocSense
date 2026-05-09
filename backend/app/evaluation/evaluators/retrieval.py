@@ -5,9 +5,8 @@ import time
 from typing import Any, Dict, List, Optional, Protocol
 
 from app.evaluation.metrics.retrieval import calculate_hit_rate, calculate_mrr
-from app.evaluation.models import MethodResult, RetrievalCaseResult
+from app.evaluation.models import MethodResult, RetrievalCaseResult, TestCase, TestCaseSet
 from app.evaluation.targets.retrieval_methods import RetrievalMethodTarget
-from app.evaluation.test_cases import DEFAULT_TEST_CASES, TestCase, TestCaseSet
 
 
 class RetrievalTarget(Protocol):
@@ -20,6 +19,8 @@ class RetrievalTarget(Protocol):
         query: str,
         top_k: int,
         document_id: Optional[str],
+        namespace: Optional[str] = None,
+        corpus_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Return retrieved chunks for the query."""
 
@@ -32,10 +33,16 @@ class RetrievalComparisonEvaluator:
         methods: List[str],
         test_set: Optional[TestCaseSet] = None,
         document_id: Optional[str] = None,
+        namespace: Optional[str] = None,
+        corpus_id: Optional[str] = None,
         top_k: int = 10,
         targets: Optional[Dict[str, RetrievalTarget]] = None,
     ) -> Dict[str, MethodResult]:
-        selected_test_set = test_set or DEFAULT_TEST_CASES
+        selected_test_set = test_set or TestCaseSet(
+            id="empty",
+            name="Empty evaluation set",
+            test_cases=[],
+        )
         targets = targets or {
             method: RetrievalMethodTarget(method)
             for method in methods
@@ -46,6 +53,8 @@ class RetrievalComparisonEvaluator:
                 target=targets[method],
                 test_cases=selected_test_set.test_cases,
                 document_id=document_id,
+                namespace=namespace,
+                corpus_id=corpus_id,
                 top_k=top_k,
             )
         return results
@@ -55,6 +64,8 @@ class RetrievalComparisonEvaluator:
         target: RetrievalTarget,
         test_cases: List[TestCase],
         document_id: Optional[str] = None,
+        namespace: Optional[str] = None,
+        corpus_id: Optional[str] = None,
         top_k: int = 10,
     ) -> MethodResult:
         results: List[Dict[str, Any]] = []
@@ -67,6 +78,8 @@ class RetrievalComparisonEvaluator:
                     query=test_case.question,
                     top_k=top_k,
                     document_id=document_id or test_case.document_id,
+                    namespace=namespace,
+                    corpus_id=corpus_id,
                 )
                 response_time = time.time() - start_time
                 hit_rank = _first_hit_rank(retrieved, test_case)

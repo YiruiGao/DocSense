@@ -4,15 +4,15 @@ import pytest
 
 import app.evaluation.evaluators.retrieval as retrieval
 from app.evaluation.evaluators.retrieval import RetrievalComparisonEvaluator
-from app.evaluation.test_cases import TestCase as EvalTestCase
-from app.evaluation.test_cases import TestCaseSet as EvalTestCaseSet
+from app.evaluation.models import TestCase as EvalTestCase
+from app.evaluation.models import TestCaseSet as EvalTestCaseSet
 
 
 class StubRetrievalTarget:
     def __init__(self, method):
         self.method = method
 
-    def retrieve(self, query, top_k, document_id):
+    def retrieve(self, query, top_k, document_id, namespace=None, corpus_id=None):
         return [
             {
                 "chunk_id": f"{self.method}-chunk",

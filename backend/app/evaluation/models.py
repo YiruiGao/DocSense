@@ -2,9 +2,42 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel
+
 from app.evaluation.metrics.retrieval import HitRateResult, MRRResult
+
+
+class QuestionDifficulty(str, Enum):
+    EASY = "easy"
+    MEDIUM = "medium"
+    HARD = "hard"
+
+
+@dataclass
+class TestCase:
+    """Normalized evaluation case used by retrieval evaluators."""
+
+    id: str
+    question: str
+    expected_chunks: List[str]
+    expected_page_numbers: List[int]
+    difficulty: QuestionDifficulty = QuestionDifficulty.EASY
+    category: Optional[str] = None
+    document_id: Optional[str] = None
+
+
+class TestCaseSet(BaseModel):
+    """Normalized evaluation case set used by evaluators."""
+
+    id: str
+    name: str
+    description: Optional[str] = None
+    test_cases: List[TestCase]
+    created_at: Optional[str] = None
+    document_id: Optional[str] = None
 
 
 @dataclass

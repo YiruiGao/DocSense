@@ -75,6 +75,8 @@ class BM25Search:
         query: str,
         top_k: int = 10,
         document_id: Optional[str] = None,
+        namespace: Optional[str] = None,
+        corpus_id: Optional[str] = None,
         min_score: float = 0.0
     ) -> List[Dict[str, Any]]:
         """
@@ -111,6 +113,10 @@ class BM25Search:
             if document_id:
                 if self._metadatas[idx].get("document_id") != document_id:
                     continue
+            if namespace and self._metadatas[idx].get("namespace", "user") != namespace:
+                continue
+            if corpus_id and self._metadatas[idx].get("corpus_id") != corpus_id:
+                continue
 
             results.append({
                 "chunk_id": self._chunk_ids[idx],

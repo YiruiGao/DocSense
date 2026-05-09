@@ -11,22 +11,12 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 interface Document {
   id: string
   name: string
   pages: number
   chunk_count: number
-}
-
-interface DocumentDiagnostics {
-  chunk_count: number
-  avg_chunk_tokens: number
-  too_short_chunk_count: number
-  too_long_chunk_count: number
-  duplicate_pair_count: number
-  code_block_cut_count: number
 }
 
 interface TraceSummary {
@@ -52,6 +42,7 @@ interface TraceDetail extends TraceSummary {
     chunk_id: string
     stage: string
     rank: number
+    document_name?: string
     chunk_index?: number
     rerank_score?: number
     selected_for_context?: boolean
@@ -60,6 +51,7 @@ interface TraceDetail extends TraceSummary {
   final_context?: Array<{
     rank: number
     chunk_id: string
+    document_name?: string
     chunk_index?: number
     score?: number
     content_preview: string
@@ -177,9 +169,6 @@ export default function RAGOpsPage() {
 
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
-  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
-  const [scopeMode, setScopeMode] = useState<'document' | 'all'>('document')
-  const [diagnostics, setDiagnostics] = useState<DocumentDiagnostics | null>(null)
   const [traces, setTraces] = useState<TraceSummary[]>([])
   const [selectedTrace, setSelectedTrace] = useState<TraceDetail | null>(null)
   const [datasets, setDatasets] = useState<EvaluationDataset[]>([])
@@ -194,8 +183,6 @@ export default function RAGOpsPage() {
   const [isRunningEvaluation, setIsRunningEvaluation] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
-  const selectedDocument = documents.find(document => document.id === selectedDocumentId)
-  const activeDocumentId = scopeMode === 'document' ? selectedDocumentId : null
   const latestRun = selectedEvaluationRun || evaluationRuns[0]
   const latestMetrics = latestRun?.metrics || {}
 
@@ -229,17 +216,6 @@ export default function RAGOpsPage() {
     if (!data.success) return
     const items = data.data || []
     setDocuments(items)
-    setSelectedDocumentId(previous => previous || items[0]?.id || null)
-  }
-
-  const loadDiagnostics = async (documentId: string | null) => {
-    if (!documentId) {
-      setDiagnostics(null)
-      return
-    }
-    const response = await fetch(`${backendUrl}/documents/${documentId}/diagnostics`)
-    const data = await response.json()
-    if (data.success) setDiagnostics(data.data.diagnostics)
   }
 
   const loadTraces = async () => {
@@ -309,7 +285,7 @@ export default function RAGOpsPage() {
     const response = await fetch(`${backendUrl}/evaluation/datasets`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, document_id: activeDocumentId }),
+      body: JSON.stringify({ name, document_id: null }),
     })
     const data = await response.json()
     if (!data.success) return
@@ -325,7 +301,7 @@ export default function RAGOpsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         question: caseQuestion.trim(),
-        document_id: activeDocumentId,
+        document_id: null,
         expected_keywords: caseKeywords.split(',').map(item => item.trim()).filter(Boolean),
       }),
     })
@@ -349,14 +325,14 @@ export default function RAGOpsPage() {
   }
 
   const runEvaluation = async () => {
-    if ((scopeMode === 'document' && !selectedDocumentId) || !selectedDataset || isRunningEvaluation) return
+    if (!selectedDataset || isRunningEvaluation) return
     setIsRunningEvaluation(true)
     try {
       const response = await fetch(`${backendUrl}/evaluation/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          document_id: activeDocumentId,
+          document_id: null,
           test_set_id: selectedDataset.dataset_id,
           methods: ['baseline', 'hybrid', 'hybrid_rerank'],
         }),
@@ -396,10 +372,6 @@ export default function RAGOpsPage() {
     refreshAll()
   }, [])
 
-  useEffect(() => {
-    loadDiagnostics(activeDocumentId)
-  }, [activeDocumentId])
-
   return (
     <div className="min-h-screen bg-[#eef2f1] text-slate-950">
       <header className="border-b border-slate-200 bg-[#fbfcfb]/95 backdrop-blur">
@@ -413,33 +385,10 @@ export default function RAGOpsPage() {
                 <Activity className="h-5 w-5 text-emerald-600" />
                 <h1 className="text-xl font-semibold tracking-tight">RAGOps Console</h1>
               </div>
-              <p className="mt-1 text-sm text-slate-500">在线质量观测 · 知识库质量治理 · 离线基准与回归评测</p>
+              <p className="mt-1 text-sm text-slate-500">Online quality monitoring · Knowledge base governance · Offline evaluation and regression testing</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <ToggleGroup
-              type="single"
-              value={scopeMode}
-              onValueChange={(value) => {
-                if (value === 'document' || value === 'all') setScopeMode(value)
-              }}
-              className="grid w-[260px] grid-cols-2"
-              variant="outline"
-              size="sm"
-            >
-              <ToggleGroupItem value="document" className="bg-white text-xs">Current document</ToggleGroupItem>
-              <ToggleGroupItem value="all" className="bg-white text-xs">All documents</ToggleGroupItem>
-            </ToggleGroup>
-            <select
-              value={selectedDocumentId || ''}
-              onChange={(event) => setSelectedDocumentId(event.target.value || null)}
-              disabled={scopeMode === 'all'}
-              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700"
-            >
-              {documents.map(document => (
-                <option key={document.id} value={document.id}>{document.name}</option>
-              ))}
-            </select>
             <Button variant="outline" className="bg-white" onClick={refreshAll} disabled={isRefreshing}>
               {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
               Refresh
@@ -459,8 +408,8 @@ export default function RAGOpsPage() {
           <MetricCard
             icon={<Gauge className="h-4 w-4" />}
             label="Knowledge chunks"
-            value={(scopeMode === 'all' ? dashboard?.knowledge_base.chunk_count ?? documents.reduce((sum, document) => sum + document.chunk_count, 0) : diagnostics?.chunk_count || selectedDocument?.chunk_count || 0).toString()}
-            hint={scopeMode === 'all' ? `${dashboard?.knowledge_base.document_count ?? documents.length} documents` : `${diagnostics?.avg_chunk_tokens || 0} avg tokens`}
+            value={(dashboard?.knowledge_base.chunk_count ?? documents.reduce((sum, document) => sum + document.chunk_count, 0)).toString()}
+            hint={`${dashboard?.knowledge_base.document_count ?? documents.length} documents`}
           />
           <MetricCard
             icon={<BarChart3 className="h-4 w-4" />}
@@ -484,41 +433,51 @@ export default function RAGOpsPage() {
           </TabsList>
 
           <TabsContent value="online" className="mt-4">
-            <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
-              <Panel title="Trace Stream" description="真实请求链路和候选上下文">
-                <ScrollArea className="h-[520px] pr-3">
-                  <div className="space-y-2">
-                    {traces.map(trace => (
-                      <button
-                        key={trace.trace_id}
-                        type="button"
-                        className={`w-full rounded-lg border p-3 text-left text-sm transition-colors ${
-                          selectedTrace?.trace_id === trace.trace_id ? 'border-slate-950 bg-white' : 'border-slate-200 bg-slate-50 hover:bg-white'
-                        }`}
-                        onClick={() => loadTraceDetail(trace.trace_id)}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="line-clamp-2 font-medium text-slate-800">{trace.question}</span>
-                          <Badge variant="outline">{trace.status}</Badge>
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
-                          {trace.retrieval_method && <span>{trace.retrieval_method}</span>}
-                          {typeof trace.total_latency_ms === 'number' && <span>{trace.total_latency_ms}ms</span>}
-                          {typeof trace.final_chunks === 'number' && <span>{trace.final_chunks}/{trace.total_candidates} chunks</span>}
-                        </div>
-                      </button>
-                    ))}
-                    {traces.length === 0 && <EmptyState text="暂无 trace，先在首页发送一次问题" />}
+            <Panel title="Online Quality" description="Live request traces, candidate context, latency, and failure cases">
+              <div className="grid gap-0 overflow-hidden rounded-lg border border-slate-200 bg-white lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+                <section className="min-w-0 border-b border-slate-200 bg-slate-50/70 p-4 lg:border-b-0 lg:border-r">
+                  <div className="mb-3">
+                    <h3 className="text-sm font-semibold text-slate-900">Trace Stream</h3>
+                    <p className="text-xs text-slate-500">Live request traces and candidate context</p>
                   </div>
-                </ScrollArea>
-              </Panel>
+                  <ScrollArea className="max-h-[420px] pr-3">
+                    <div className="space-y-2">
+                      {traces.map(trace => (
+                        <button
+                          key={trace.trace_id}
+                          type="button"
+                          className={`w-full rounded-lg border p-3 text-left text-sm transition-colors ${
+                            selectedTrace?.trace_id === trace.trace_id ? 'border-slate-950 bg-white' : 'border-slate-200 bg-slate-50 hover:bg-white'
+                          }`}
+                          onClick={() => loadTraceDetail(trace.trace_id)}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="line-clamp-2 font-medium text-slate-800">{trace.question}</span>
+                            <Badge variant="outline">{trace.status}</Badge>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                            {trace.retrieval_method && <span>{trace.retrieval_method}</span>}
+                            {typeof trace.total_latency_ms === 'number' && <span>{trace.total_latency_ms}ms</span>}
+                            {typeof trace.final_chunks === 'number' && <span>{trace.final_chunks}/{trace.total_candidates} chunks</span>}
+                          </div>
+                        </button>
+                      ))}
+                      {traces.length === 0 && <EmptyState text="No traces yet. Ask a question on the home page first." />}
+                    </div>
+                  </ScrollArea>
+                </section>
 
-              <div className="space-y-4">
-                <Panel title="Trace Detail" description={selectedTrace ? `${selectedTrace.trace_id} · ${selectedTrace.question}` : '选择一条 trace 查看详情'}>
+                <section className="space-y-4 p-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">Trace Detail</h3>
+                    <p className="line-clamp-2 text-xs text-slate-500">
+                      {selectedTrace ? `${selectedTrace.trace_id} · ${selectedTrace.question}` : 'Select a trace to view details'}
+                    </p>
+                  </div>
                   {selectedTrace ? (
                     <div className="space-y-4">
                       <div className="flex flex-col gap-2 sm:flex-row">
-                        <Input value={badcaseExpected} onChange={(event) => setBadcaseExpected(event.target.value)} placeholder="标注期望行为" />
+                        <Input value={badcaseExpected} onChange={(event) => setBadcaseExpected(event.target.value)} placeholder="Describe the expected behavior" />
                         <Button variant="outline" className="bg-white" onClick={markBadcase}>
                           <Bug className="mr-2 h-4 w-4" />
                           Mark badcase
@@ -538,7 +497,7 @@ export default function RAGOpsPage() {
                             <div key={item.chunk_id} className="rounded-md bg-slate-50 p-3 text-xs">
                               <div className="mb-1 flex items-center gap-2 text-slate-500">
                                 <Badge variant="outline">#{item.rank}</Badge>
-                                {typeof item.chunk_index === 'number' && <span>chunk {item.chunk_index + 1}</span>}
+                                <span className="truncate">{item.document_name || item.chunk_id}</span>
                               </div>
                               <p className="line-clamp-4 text-slate-700">{item.content_preview}</p>
                             </div>
@@ -550,6 +509,7 @@ export default function RAGOpsPage() {
                               <div className="mb-1 flex flex-wrap items-center gap-2 text-slate-500">
                                 <Badge variant={item.selected_for_context ? 'default' : 'outline'}>{item.stage}</Badge>
                                 <span>rank {item.rank}</span>
+                                <span className="truncate">{item.document_name || item.chunk_id}</span>
                               </div>
                               <p className="line-clamp-3 text-slate-700">{item.content_preview}</p>
                             </div>
@@ -558,11 +518,17 @@ export default function RAGOpsPage() {
                       </div>
                     </div>
                   ) : (
-                    <EmptyState text="从左侧选择一条 trace" />
+                    <EmptyState text="Select a trace from the left panel" />
                   )}
-                </Panel>
+                </section>
+              </div>
 
-                <Panel title="Online Summary" description="请求质量、延迟和成本概览">
+              <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_420px]">
+                <section className="rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="mb-3">
+                    <h3 className="text-sm font-semibold text-slate-900">Online Summary</h3>
+                    <p className="text-xs text-slate-500">Request quality, latency, and cost overview</p>
+                  </div>
                   <div className="grid gap-3 md:grid-cols-4">
                     <SummaryCell label="Success rate" value={formatPercent(dashboard?.online_quality.success_rate)} />
                     <SummaryCell label="Errors" value={(dashboard?.online_quality.error_count || 0).toString()} />
@@ -573,9 +539,13 @@ export default function RAGOpsPage() {
                     <SummaryCell label="Tokens" value={(dashboard?.online_quality.total_tokens || 0).toString()} />
                     <SummaryCell label="Priced traces" value={(dashboard?.online_quality.priced_trace_count || 0).toString()} />
                   </div>
-                </Panel>
+                </section>
 
-                <Panel title="Badcases" description="真实请求失败样例池">
+                <section className="rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="mb-3">
+                    <h3 className="text-sm font-semibold text-slate-900">Badcases</h3>
+                    <p className="text-xs text-slate-500">Failure cases captured from live requests</p>
+                  </div>
                   <div className="grid gap-3 md:grid-cols-2">
                     {badcases.map(item => (
                       <div key={item.badcase_id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
@@ -587,127 +557,143 @@ export default function RAGOpsPage() {
                         {item.expected_behavior && <p className="mt-2 line-clamp-2 text-xs text-slate-500">{item.expected_behavior}</p>}
                       </div>
                     ))}
-                    {badcases.length === 0 && <EmptyState text="暂无 badcase" />}
+                    {badcases.length === 0 && <EmptyState text="No badcases yet" />}
                   </div>
-                </Panel>
+                </section>
               </div>
-            </div>
+            </Panel>
           </TabsContent>
 
           <TabsContent value="kb" className="mt-4">
-            <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
-              <Panel title="Documents" description="选择文档查看 chunk 质量">
-                <div className="space-y-2">
-                  {documents.map(document => (
-                    <button
-                      key={document.id}
-                      type="button"
-                      className={`w-full rounded-lg border p-3 text-left text-sm ${
-                        selectedDocumentId === document.id ? 'border-slate-950 bg-white' : 'border-slate-200 bg-slate-50 hover:bg-white'
-                      }`}
-                      onClick={() => setSelectedDocumentId(document.id)}
-                    >
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-blue-500" />
-                        <span className="truncate font-medium text-slate-800">{document.name}</span>
-                      </div>
-                      <div className="mt-2 flex gap-3 text-xs text-slate-500">
-                        <span>{document.pages} pages</span>
-                        <span>{document.chunk_count} chunks</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </Panel>
+            <Panel title="Knowledge Base" description="Document inventory and chunk quality diagnostics">
+              <div className="grid gap-0 overflow-hidden rounded-lg border border-slate-200 bg-white lg:grid-cols-[360px_1fr]">
+                <section className="border-b border-slate-200 bg-slate-50/70 p-4 lg:border-b-0 lg:border-r">
+	                  <div className="mb-3">
+	                    <h3 className="text-sm font-semibold text-slate-900">Documents</h3>
+		                    <p className="text-xs text-slate-500">Current knowledge base document inventory</p>
+	                  </div>
+                  <ScrollArea className="max-h-[420px] pr-3">
+                    <div className="space-y-2">
+                      {documents.map(document => (
+                        <div
+                          key={document.id}
+                          className="w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-left text-sm"
+                        >
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-4 w-4 text-blue-500" />
+                            <span className="truncate font-medium text-slate-800">{document.name}</span>
+                          </div>
+                          <div className="mt-2 flex gap-3 text-xs text-slate-500">
+                            <span>{document.pages} pages</span>
+                            <span>{document.chunk_count} chunks</span>
+                          </div>
+                        </div>
+                      ))}
+                      {documents.length === 0 && <EmptyState text="No documents yet" />}
+                    </div>
+                  </ScrollArea>
+                </section>
 
-              <Panel title="Knowledge Base Quality" description={scopeMode === 'all' ? '全部文档概览' : selectedDocument?.name || '选择文档'}>
-                {scopeMode === 'all' && dashboard ? (
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <MetricCard icon={<FileText className="h-4 w-4" />} label="Documents" value={dashboard.knowledge_base.document_count.toString()} hint={`${dashboard.knowledge_base.avg_chunks_per_doc} chunks/doc`} />
-                    <MetricCard icon={<Layers3 className="h-4 w-4" />} label="Chunks" value={dashboard.knowledge_base.chunk_count.toString()} hint="indexed units" />
-                    <MetricCard icon={<Database className="h-4 w-4" />} label="Duplicates" value={dashboard.knowledge_base.duplicate_pair_count.toString()} hint="similar chunk pairs" />
-                    <MetricCard icon={<FileText className="h-4 w-4" />} label="Code cuts" value={dashboard.knowledge_base.code_block_cut_count.toString()} hint="broken code blocks" />
-                    <MetricCard icon={<Search className="h-4 w-4" />} label="Too short" value={dashboard.knowledge_base.too_short_chunk_count.toString()} hint="weak semantic units" />
-                    <MetricCard icon={<Search className="h-4 w-4" />} label="Too long" value={dashboard.knowledge_base.too_long_chunk_count.toString()} hint="high context cost" />
+                <section className="p-4">
+                  <div className="mb-3">
+                    <h3 className="text-sm font-semibold text-slate-900">Knowledge Base Quality</h3>
+                    <p className="line-clamp-2 text-xs text-slate-500">All-document overview</p>
                   </div>
-                ) : diagnostics ? (
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <MetricCard icon={<Layers3 className="h-4 w-4" />} label="Chunks" value={diagnostics.chunk_count.toString()} hint="indexed units" />
-                    <MetricCard icon={<Gauge className="h-4 w-4" />} label="Avg tokens" value={diagnostics.avg_chunk_tokens.toString()} hint="chunk size" />
-                    <MetricCard icon={<Database className="h-4 w-4" />} label="Duplicates" value={diagnostics.duplicate_pair_count.toString()} hint="similar chunk pairs" />
-                    <MetricCard icon={<FileText className="h-4 w-4" />} label="Code cuts" value={diagnostics.code_block_cut_count.toString()} hint="broken code blocks" />
-                    <MetricCard icon={<Search className="h-4 w-4" />} label="Too short" value={diagnostics.too_short_chunk_count.toString()} hint="weak semantic units" />
-                    <MetricCard icon={<Search className="h-4 w-4" />} label="Too long" value={diagnostics.too_long_chunk_count.toString()} hint="high context cost" />
-                  </div>
-                ) : (
-                  <EmptyState text="暂无文档诊断数据" />
-                )}
-              </Panel>
-            </div>
+                  {dashboard ? (
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <MetricCard icon={<FileText className="h-4 w-4" />} label="Documents" value={dashboard.knowledge_base.document_count.toString()} hint={`${dashboard.knowledge_base.avg_chunks_per_doc} chunks/doc`} />
+                      <MetricCard icon={<Layers3 className="h-4 w-4" />} label="Chunks" value={dashboard.knowledge_base.chunk_count.toString()} hint="indexed units" />
+                      <MetricCard icon={<Database className="h-4 w-4" />} label="Duplicates" value={dashboard.knowledge_base.duplicate_pair_count.toString()} hint="similar chunk pairs" />
+                      <MetricCard icon={<FileText className="h-4 w-4" />} label="Code cuts" value={dashboard.knowledge_base.code_block_cut_count.toString()} hint="broken code blocks" />
+                      <MetricCard icon={<Search className="h-4 w-4" />} label="Too short" value={dashboard.knowledge_base.too_short_chunk_count.toString()} hint="weak semantic units" />
+                      <MetricCard icon={<Search className="h-4 w-4" />} label="Too long" value={dashboard.knowledge_base.too_long_chunk_count.toString()} hint="high context cost" />
+                    </div>
+                  ) : (
+                    <EmptyState text="No knowledge base diagnostics yet" />
+                  )}
+                </section>
+              </div>
+            </Panel>
           </TabsContent>
 
           <TabsContent value="offline" className="mt-4">
-            <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
-              <Panel title="Datasets" description="维护可周期运行的评测集">
-                <div className="mb-3 flex gap-2">
-                  <Input value={datasetName} onChange={(event) => setDatasetName(event.target.value)} placeholder="新评测集名称" />
-                  <Button variant="outline" className="bg-white" onClick={createDataset}>
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className="space-y-2">
-                  {datasets.map(dataset => (
-                    <button
-                      key={dataset.dataset_id}
-                      type="button"
-                      className={`w-full rounded-lg border p-3 text-left text-sm ${
-                        selectedDataset?.dataset_id === dataset.dataset_id ? 'border-slate-950 bg-white' : 'border-slate-200 bg-slate-50 hover:bg-white'
-                      }`}
-                      onClick={() => loadDatasetDetail(dataset.dataset_id)}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate font-medium text-slate-800">{dataset.name}</span>
-                        <Badge variant="outline">{dataset.enabled_case_count ?? dataset.case_count ?? 0}</Badge>
-                      </div>
-                      <div className="mt-1 truncate text-xs text-slate-400">{dataset.dataset_id}</div>
-                    </button>
-                  ))}
-                </div>
-              </Panel>
+            <Panel title="Offline Evaluation" description="Dataset maintenance, run history, and retrieval strategy comparison">
+              <div className="grid gap-0 overflow-hidden rounded-lg border border-slate-200 bg-white lg:grid-cols-[360px_1fr]">
+                <section className="border-b border-slate-200 bg-slate-50/70 p-4 lg:border-b-0 lg:border-r">
+                  <div className="mb-3">
+                    <h3 className="text-sm font-semibold text-slate-900">Datasets</h3>
+                    <p className="text-xs text-slate-500">Maintain reusable evaluation datasets</p>
+                  </div>
+                  <div className="mb-3 flex min-w-0 gap-2">
+                    <Input className="min-w-0" value={datasetName} onChange={(event) => setDatasetName(event.target.value)} placeholder="New dataset name" />
+                    <Button variant="outline" className="shrink-0 bg-white" onClick={createDataset}>
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <ScrollArea className="max-h-[420px] pr-3">
+                    <div className="min-w-0 space-y-2">
+                      {datasets.map(dataset => (
+                        <button
+                          key={dataset.dataset_id}
+                          type="button"
+                          className={`w-full min-w-0 rounded-lg border p-3 text-left text-sm ${
+                            selectedDataset?.dataset_id === dataset.dataset_id ? 'border-slate-950 bg-white' : 'border-slate-200 bg-slate-50 hover:bg-white'
+                          }`}
+                          onClick={() => loadDatasetDetail(dataset.dataset_id)}
+                        >
+                          <div className="flex min-w-0 items-start justify-between gap-2">
+                            <span className="min-w-0 break-words font-medium leading-5 text-slate-800">{dataset.name}</span>
+                            <Badge variant="outline" className="shrink-0">{dataset.enabled_case_count ?? dataset.case_count ?? 0}</Badge>
+                          </div>
+                          <div className="mt-1 break-all text-xs text-slate-400">{dataset.dataset_id}</div>
+                        </button>
+                      ))}
+                      {datasets.length === 0 && <EmptyState text="No evaluation datasets yet" />}
+                    </div>
+                  </ScrollArea>
+                </section>
 
-              <div className="space-y-4">
-                <Panel title="Dataset Cases" description={selectedDataset?.name || '选择评测集'}>
+                <section className="min-w-0 space-y-4 p-4">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-slate-900">Dataset Cases</h3>
+                    <p className="line-clamp-2 text-xs text-slate-500">{selectedDataset?.name || 'Select a dataset'}</p>
+                  </div>
                   {selectedDataset ? (
-                    <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-                      <ScrollArea className="h-[360px] pr-3">
-                        <div className="space-y-2">
+                    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(260px,320px)]">
+                      <ScrollArea className="max-h-[320px] min-w-0 pr-3">
+                        <div className="min-w-0 space-y-2">
                           {(selectedDataset.cases || []).map(item => (
-                            <button key={item.case_id} type="button" className="w-full rounded-lg bg-slate-50 p-3 text-left text-sm hover:bg-slate-100" onClick={() => toggleCase(item)}>
-                              <div className="flex items-start justify-between gap-2">
-                                <span className="line-clamp-2 font-medium text-slate-800">{item.question}</span>
-                                <Badge variant={item.enabled ? 'default' : 'outline'}>{item.enabled ? 'on' : 'off'}</Badge>
+                            <button key={item.case_id} type="button" className="w-full min-w-0 rounded-lg bg-slate-50 p-3 text-left text-sm hover:bg-slate-100" onClick={() => toggleCase(item)}>
+                              <div className="flex min-w-0 items-start justify-between gap-2">
+                                <span className="min-w-0 line-clamp-2 font-medium text-slate-800">{item.question}</span>
+                                <Badge variant={item.enabled ? 'default' : 'outline'} className="shrink-0">{item.enabled ? 'on' : 'off'}</Badge>
                               </div>
-                              <p className="mt-2 truncate text-xs text-slate-400">{(item.expected_keywords || []).join(', ') || 'no keywords'}</p>
+                              <p className="mt-2 line-clamp-2 break-words text-xs text-slate-400">{(item.expected_keywords || []).join(', ') || 'no keywords'}</p>
                             </button>
                           ))}
                         </div>
                       </ScrollArea>
-                      <div className="space-y-2">
-                        <Textarea value={caseQuestion} onChange={(event) => setCaseQuestion(event.target.value)} placeholder="新增评测问题" />
-                        <Input value={caseKeywords} onChange={(event) => setCaseKeywords(event.target.value)} placeholder="期望关键词，用英文逗号分隔" />
+                      <div className="min-w-0 space-y-2">
+                        <Textarea className="min-w-0" value={caseQuestion} onChange={(event) => setCaseQuestion(event.target.value)} placeholder="New evaluation question" />
+                        <Input className="min-w-0" value={caseKeywords} onChange={(event) => setCaseKeywords(event.target.value)} placeholder="Expected keywords, separated by commas" />
                         <Button className="w-full bg-slate-950 text-white hover:bg-slate-800" onClick={addCase}>Add case</Button>
-                        <Button className="w-full" variant="outline" onClick={runEvaluation} disabled={(scopeMode === 'document' && !selectedDocumentId) || isRunningEvaluation}>
+                        <Button className="w-full" variant="outline" onClick={runEvaluation} disabled={!selectedDataset || isRunningEvaluation}>
                           {isRunningEvaluation ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BarChart3 className="mr-2 h-4 w-4" />}
                           Run evaluation
                         </Button>
                       </div>
                     </div>
                   ) : (
-                    <EmptyState text="选择或创建一个评测集" />
+                    <EmptyState text="Select or create a dataset" />
                   )}
-                </Panel>
+                </section>
+              </div>
 
-                <Panel title="Evaluation Runs" description="策略基准和回归结果">
+              <section className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
+                <div className="mb-3">
+                  <h3 className="text-sm font-semibold text-slate-900">Evaluation Runs</h3>
+                  <p className="text-xs text-slate-500">Strategy benchmarks and regression results</p>
+                </div>
                   {dashboard && (
                     <div className="mb-4 grid gap-3 md:grid-cols-4">
                       <SummaryCell label="Runs" value={dashboard.offline_evaluation.run_count.toString()} />
@@ -717,7 +703,7 @@ export default function RAGOpsPage() {
                     </div>
                   )}
                   <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
-                    <ScrollArea className="h-[360px] pr-3">
+                    <ScrollArea className="max-h-[320px] pr-3">
                       <div className="space-y-2">
                         {evaluationRuns.map(run => (
                           <button
@@ -775,12 +761,11 @@ export default function RAGOpsPage() {
                         )}
                       </div>
                     ) : (
-                      <EmptyState text="暂无评测运行" />
+                      <EmptyState text="No evaluation runs yet" />
                     )}
                   </div>
-                </Panel>
-              </div>
-            </div>
+              </section>
+            </Panel>
           </TabsContent>
         </Tabs>
       </main>
@@ -804,12 +789,16 @@ function MetricCard({ icon, label, value, hint }: { icon: React.ReactNode; label
   return (
     <Card className="border border-slate-200 bg-[#fbfcfb] shadow-sm">
       <CardContent className="p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-slate-500">{icon}</div>
-          <Badge variant="outline" className="bg-white">{label}</Badge>
+        <div className="flex items-start gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 shadow-sm">
+            {icon}
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold leading-5 text-slate-900">{label}</h3>
+            <p className="mt-0.5 truncate text-xs text-slate-500">{hint}</p>
+          </div>
         </div>
         <div className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">{value}</div>
-        <div className="mt-1 truncate text-xs text-slate-400">{hint}</div>
       </CardContent>
     </Card>
   )

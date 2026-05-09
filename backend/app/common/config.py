@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     base_dir: Path = Path(__file__).resolve().parents[3]
     data_dir: Path = base_dir / "data"
     uploads_dir: Path = data_dir / "uploads"
+    eval_corpora_dir: Path = data_dir / "eval_corpora"
     chroma_dir: Path = data_dir / "chroma"
     cache_dir: Path = data_dir / "cache"
     logs_dir: Path = data_dir / "logs"
@@ -103,6 +104,7 @@ class Settings(BaseSettings):
 
         # 确保目录存在
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
+        self.eval_corpora_dir.mkdir(parents=True, exist_ok=True)
         self.chroma_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)

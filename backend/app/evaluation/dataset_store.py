@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from app.common.config import settings
 from app.common.logging import get_logger
-from app.evaluation.test_cases import DEFAULT_TEST_CASES, QuestionDifficulty, TestCase
+from app.evaluation.models import QuestionDifficulty, TestCase
 
 logger = get_logger(__name__)
 
@@ -20,54 +20,16 @@ def _now() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _case_to_dict(test_case: TestCase, dataset_id: str) -> Dict[str, Any]:
-    return {
-        "case_id": test_case.id,
-        "dataset_id": dataset_id,
-        "question": test_case.question,
-        "document_id": test_case.document_id,
-        "category": test_case.category,
-        "difficulty": test_case.difficulty.value,
-        "expected_keywords": list(test_case.expected_chunks or []),
-        "expected_chunk_ids": [],
-        "expected_page_numbers": list(test_case.expected_page_numbers or []),
-        "should_answer": True,
-        "notes": "",
-        "enabled": True,
-        "source": "seed",
-        "created_at": _now(),
-        "updated_at": _now(),
-    }
-
-
-def _default_dataset() -> Dict[str, Any]:
-    now = _now()
-    dataset_id = DEFAULT_TEST_CASES.id
-    return {
-        "dataset_id": dataset_id,
-        "name": DEFAULT_TEST_CASES.name,
-        "description": DEFAULT_TEST_CASES.description,
-        "document_id": DEFAULT_TEST_CASES.document_id,
-        "enabled": True,
-        "created_at": now,
-        "updated_at": now,
-        "cases": [
-            _case_to_dict(test_case, dataset_id)
-            for test_case in DEFAULT_TEST_CASES.test_cases
-        ],
-    }
-
-
 def _load_datasets() -> List[Dict[str, Any]]:
     if not _DATASETS_FILE.exists():
-        return [_default_dataset()]
+        return []
     try:
         with open(_DATASETS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return data if isinstance(data, list) else [_default_dataset()]
+        return data if isinstance(data, list) else []
     except Exception as exc:
         logger.warning(f"加载 evaluation datasets 失败: {exc}")
-        return [_default_dataset()]
+        return []
 
 
 def _save_datasets(datasets: List[Dict[str, Any]]) -> None:
@@ -92,6 +54,7 @@ def list_datasets(include_cases: bool = False) -> List[Dict[str, Any]]:
             "name": dataset.get("name"),
             "description": dataset.get("description"),
             "document_id": dataset.get("document_id"),
+            "corpus_id": dataset.get("corpus_id"),
             "enabled": dataset.get("enabled", True),
             "case_count": len(cases),
             "enabled_case_count": sum(1 for case in cases if case.get("enabled", True)),
@@ -116,6 +79,7 @@ def create_dataset(payload: Dict[str, Any]) -> Dict[str, Any]:
         "name": payload.get("name") or "未命名评测集",
         "description": payload.get("description") or "",
         "document_id": payload.get("document_id"),
+        "corpus_id": payload.get("corpus_id"),
         "enabled": payload.get("enabled", True),
         "created_at": now,
         "updated_at": now,
@@ -131,7 +95,7 @@ def update_dataset(dataset_id: str, payload: Dict[str, Any]) -> Optional[Dict[st
     for dataset in datasets:
         if dataset.get("dataset_id") != dataset_id:
             continue
-        for key in ["name", "description", "document_id", "enabled"]:
+        for key in ["name", "description", "document_id", "corpus_id", "enabled"]:
             if key in payload:
                 dataset[key] = payload[key]
         dataset["updated_at"] = _now()
