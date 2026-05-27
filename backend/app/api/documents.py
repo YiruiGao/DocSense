@@ -308,7 +308,7 @@ def _index_document_content(
     chunk_ids = []
 
     for cr in chunk_results:
-        chunk_id = f"chunk_{uuid.uuid4().hex[:12]}"
+        chunk_id = str(uuid.uuid4())
         chunk = Chunk(
             id=chunk_id,
             document_id=doc_id,
@@ -333,15 +333,7 @@ def _index_document_content(
         })
         chunk_ids.append(chunk_id)
 
-    logger.debug("开始存储到向量数据库")
-    vector_store.add_chunks(chunks)
-    logger.info("向量存储完成")
-
-    logger.debug("开始建立BM25索引")
-    bm25_search.add_documents(texts, metadatas, chunk_ids)
-    logger.info("BM25索引建立完成")
-
-    return DocumentInfo(
+    doc_info = DocumentInfo(
         id=doc_id,
         name=file_name,
         chunk_count=len(chunks),
@@ -352,6 +344,16 @@ def _index_document_content(
         namespace=namespace,
         corpus_id=corpus_id,
     )
+    logger.debug("开始存储到向量数据库")
+    vector_store.upsert_document(doc_info)
+    vector_store.add_chunks(chunks)
+    logger.info("向量存储完成")
+
+    logger.debug("开始建立BM25索引")
+    bm25_search.add_documents(texts, metadatas, chunk_ids)
+    logger.info("BM25索引建立完成")
+
+    return doc_info
 
 
 def index_evaluation_document(file_path: Path, corpus_id: str) -> DocumentInfo:
@@ -378,7 +380,7 @@ def index_evaluation_document(file_path: Path, corpus_id: str) -> DocumentInfo:
             _delete_document_artifacts(doc_id)
             del _documents_store[doc_id]
 
-    doc_id = f"eval_{uuid.uuid4().hex[:12]}"
+    doc_id = str(uuid.uuid4())
     doc_info = _index_document_content(
         content=content,
         file_name=file_name,
@@ -429,7 +431,7 @@ async def upload_document(file: UploadFile = File(...)):
         _save_store()
 
     # 生成文档ID
-    doc_id = f"doc_{uuid.uuid4().hex[:12]}"
+    doc_id = str(uuid.uuid4())
     logger.debug(f"生成文档ID: {doc_id}")
 
     # 保存文件
@@ -473,7 +475,7 @@ async def upload_document(file: UploadFile = File(...)):
         chunk_ids = []
 
         for cr in chunk_results:
-            chunk_id = f"chunk_{uuid.uuid4().hex[:12]}"
+            chunk_id = str(uuid.uuid4())
             chunk = Chunk(
                 id=chunk_id,
                 document_id=doc_id,
@@ -497,7 +499,17 @@ async def upload_document(file: UploadFile = File(...)):
             chunk_ids.append(chunk_id)
 
         # 4. 存储到向量数据库
+        doc_info = DocumentInfo(
+            id=doc_id,
+            name=file.filename,
+            chunk_count=len(chunks),
+            pages=total_pages,
+            file_size=len(content),
+            created_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+            file_hash=file_hash,
+        )
         logger.debug("开始存储到向量数据库")
+        vector_store.upsert_document(doc_info)
         vector_store.add_chunks(chunks)
         logger.info("向量存储完成")
 
@@ -507,15 +519,6 @@ async def upload_document(file: UploadFile = File(...)):
         logger.info("BM25索引建立完成")
 
         # 6. 保存文档信息
-        doc_info = DocumentInfo(
-            id=doc_id,
-            name=file.filename,
-            chunk_count=len(chunks),
-            pages=total_pages,
-            file_size=len(content),
-            created_at=time.strftime("%Y-%m-%d %H:%M:%S"),
-            file_hash=file_hash
-        )
         _documents_store[doc_id] = doc_info
         _save_store()  # 持久化
         _query_cache.clear()
@@ -560,7 +563,7 @@ async def list_documents():
 
 @router.get("/{doc_id}/chunks")
 async def get_document_chunks(doc_id: str):
-    """查看文档实际写入 Chroma 的 chunks。"""
+    """查看文档的 chunks。"""
     if doc_id not in _documents_store:
         raise HTTPException(status_code=404, detail="文档不存在")
 
@@ -631,7 +634,7 @@ async def delete_document(doc_id: str):
 
 @router.post("/cleanup")
 async def cleanup_orphaned_indexes():
-    """清理文档元信息中不存在的 Chroma/BM25 孤儿索引。"""
+    """清理文档元信息中不存在的向量/BM25 孤儿索引。"""
     valid_document_ids = set(_documents_store.keys())
     vector_removed = vector_store.delete_documents_not_in(valid_document_ids)
     bm25_removed = bm25_search.remove_documents_not_in(valid_document_ids)

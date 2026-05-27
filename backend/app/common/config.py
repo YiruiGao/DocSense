@@ -26,7 +26,6 @@ class Settings(BaseSettings):
     data_dir: Path = base_dir / "data"
     uploads_dir: Path = data_dir / "uploads"
     eval_corpora_dir: Path = data_dir / "eval_corpora"
-    chroma_dir: Path = data_dir / "chroma"
     cache_dir: Path = data_dir / "cache"
     logs_dir: Path = data_dir / "logs"
 
@@ -73,6 +72,11 @@ class Settings(BaseSettings):
     # Rerank 配置
     rerank_model: str = "BAAI/bge-reranker-base"
 
+    # Postgres 连接配置
+    postgres_dsn: Optional[str] = None
+    postgres_pool_min: int = 1
+    postgres_pool_max: int = 10
+
     # 服务配置
     backend_host: str = "0.0.0.0"
     backend_port: int = 8000
@@ -105,7 +109,6 @@ class Settings(BaseSettings):
         # 确保目录存在
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
         self.eval_corpora_dir.mkdir(parents=True, exist_ok=True)
-        self.chroma_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         if self.log_dir is None:

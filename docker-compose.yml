@@ -1,6 +1,23 @@
 version: '3.8'
 
 services:
+  # Postgres + pgvector (opt-in via STORAGE_BACKEND=pgvector)
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-docsense}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-docsense}
+      - POSTGRES_DB=${POSTGRES_DB:-docsense}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-docsense} -d ${POSTGRES_DB:-docsense}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Python 后端服务
   backend:
     build:
@@ -21,8 +38,12 @@ services:
       - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-v4-pro}
       - DEEPSEEK_REASONING_EFFORT=${DEEPSEEK_REASONING_EFFORT:-high}
       - DEEPSEEK_THINKING_ENABLED=${DEEPSEEK_THINKING_ENABLED:-true}
+      - POSTGRES_DSN=${POSTGRES_DSN:-postgresql://docsense:docsense@postgres:5432/docsense}
     volumes:
       - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -47,3 +68,4 @@ services:
 
 volumes:
   rag-data:
+  pgdata:

@@ -134,11 +134,12 @@ persistence because those workflows depend on Python ML/RAG libraries. The
 frontend stays focused on interaction: document management, chat, source
 inspection, and RAGOps views.
 
-### Chroma for Vector Storage
+### Postgres + pgvector for Vector Storage
 
-Chroma provides persistent local vector storage with straightforward metadata
-filtering by document ID. That keeps document-scoped search and full-library
-search using the same retrieval path.
+Chunks are stored in Postgres with an HNSW cosine index via pgvector. Using
+Postgres as the single storage backend means ACL filtering, revision tracking,
+and soft delete all live in the same transactional system as document metadata,
+with no second store to keep in sync.
 
 ### BM25 Alongside Vector Search
 
@@ -176,7 +177,7 @@ regressions, and turn bad user-visible behavior into repeatable test cases.
 
 - Python 3.11
 - FastAPI
-- Chroma-backed vector storage
+- Postgres + pgvector for vector storage (HNSW cosine index)
 - SentenceTransformers embeddings
 - BM25 lexical retrieval with `rank-bm25` and `jieba`
 - FlagEmbedding reranker
@@ -258,10 +259,21 @@ ZAI_MODEL=glm-5
 DEEPSEEK_API_KEY=...
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-pro
+
+POSTGRES_DSN=postgresql://docsense:docsense@localhost:5432/docsense
 ```
 
 Set `LLM_PROVIDER` to the provider you want to use. The repository currently
 includes provider configuration examples for z.ai and DeepSeek.
+
+Start the bundled Postgres service before running the backend:
+
+```bash
+docker compose up -d postgres
+make dev
+```
+
+The schema in `backend/sql/schema.sql` is applied automatically on first connection.
 
 Runtime data is stored under `data/` by default:
 

@@ -1,4 +1,6 @@
 """FastAPI 主入口"""
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -16,8 +18,15 @@ from app.api.ops import router as ops_router
 setup_logging(log_level=settings.log_level, log_dir=settings.log_dir)
 logger = get_logger(__name__)
 
-# Initialize FastAPI app
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from app.retrieval.vector_store import vector_store
+    _ = vector_store.pool  # warm up connection pool before first request
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 # CORS 配置
