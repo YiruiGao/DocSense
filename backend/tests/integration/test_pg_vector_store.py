@@ -51,7 +51,7 @@ def _add(store, chunks: list):
     seen = {c.document_id for c in chunks}
     for doc_id in seen:
         store.upsert_document(DocumentInfo(
-            id=doc_id, name="test", chunk_count=0, pages=1,
+            id=doc_id, name=doc_id, chunk_count=0, pages=1,
             file_size=0, created_at=time.strftime("%Y-%m-%d %H:%M:%S"),
             file_hash="", namespace=chunks[0].namespace,
             corpus_id=chunks[0].corpus_id,

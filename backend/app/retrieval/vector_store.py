@@ -25,6 +25,29 @@ logger = logging.getLogger(__name__)
 SCHEMA_PATH = Path(__file__).resolve().parents[2] / "sql" / "schema.sql"
 _INITIAL_REVISION = 1
 
+_DOCUMENT_COLUMNS = """\
+    id::text, name, chunk_count, pages, file_size,
+    to_char(created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at,
+    file_hash, namespace, corpus_id,
+    revision, status, superseded_by::text"""
+
+
+def _row_to_document_info(row: dict) -> DocumentInfo:
+    return DocumentInfo(
+        id=row["id"],
+        name=row["name"],
+        chunk_count=row["chunk_count"],
+        pages=row["pages"] or 0,
+        file_size=row["file_size"],
+        created_at=row["created_at"],
+        file_hash=row.get("file_hash") or None,
+        namespace=row["namespace"],
+        corpus_id=row.get("corpus_id") or None,
+        revision=row.get("revision", 1),
+        status=row.get("status", "published"),
+        superseded_by=row.get("superseded_by") or None,
+    )
+
 
 def _configure_connection(conn: Connection) -> None:
     register_vector(conn)
@@ -81,17 +104,18 @@ class VectorStore:
             conn.commit()
 
     def upsert_document(self, doc: DocumentInfo, *, source_type: str = "upload") -> None:
-        """Create or refresh the documents row for the given DocumentInfo."""
-        source_uri = f"{source_type}://{doc.file_hash or doc.id}"
+        """Insert a new document row. source_uri uses name for stable revision chaining."""
+        source_uri = f"{source_type}://{doc.name}"
         with self.pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     INSERT INTO documents (
                         id, name, source_type, source_uri, file_hash,
-                        file_size, pages, chunk_count, namespace, corpus_id
+                        file_size, pages, chunk_count, namespace, corpus_id,
+                        revision, status, published_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
                     ON CONFLICT (id) DO UPDATE SET
                         name        = EXCLUDED.name,
                         chunk_count = EXCLUDED.chunk_count,
@@ -105,9 +129,96 @@ class VectorStore:
                         doc.id, doc.name, source_type, source_uri,
                         doc.file_hash or "", doc.file_size, doc.pages,
                         doc.chunk_count, doc.namespace, doc.corpus_id,
+                        doc.revision, doc.status,
                     ),
                 )
             conn.commit()
+
+    def find_published_by_source_uri(self, source_type: str, source_uri: str) -> Optional[Dict[str, Any]]:
+        """Return the currently published document for a given source_uri, or None."""
+        with self.pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    f"""
+                    SELECT {_DOCUMENT_COLUMNS}
+                    FROM documents
+                    WHERE source_type = %s AND source_uri = %s
+                      AND status = 'published' AND deleted_at IS NULL
+                    ORDER BY revision DESC
+                    LIMIT 1
+                    """,
+                    (source_type, source_uri),
+                )
+                return cur.fetchone()
+
+    def archive_document(self, doc_id: str, superseded_by_id: str) -> None:
+        """Mark a document as archived and set its superseded_by pointer."""
+        with self.pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE documents
+                       SET status = 'archived',
+                           superseded_by = %s,
+                           updated_at = now()
+                     WHERE id = %s
+                    """,
+                    (superseded_by_id, doc_id),
+                )
+            conn.commit()
+
+    def list_documents(
+        self,
+        namespace: Optional[str] = "user",
+        include_archived: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """List documents from Postgres, defaulting to published + not deleted only.
+
+        Pass namespace=None to query all namespaces.
+        """
+        conditions = ["deleted_at IS NULL"]
+        params: List[Any] = []
+        if namespace is not None:
+            conditions.append("namespace = %s")
+            params.append(namespace)
+        if not include_archived:
+            conditions.append("status = 'published'")
+        where = " AND ".join(conditions)
+        with self.pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE {where} ORDER BY created_at DESC",
+                    params,
+                )
+                return cur.fetchall()
+
+    def get_document(self, doc_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch a single document row by ID."""
+        with self.pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE id = %s",
+                    (doc_id,),
+                )
+                return cur.fetchone()
+
+    def get_document_revisions(self, doc_id: str) -> List[Dict[str, Any]]:
+        """Return all revisions sharing the same (source_type, source_uri) chain as doc_id."""
+        with self.pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    f"""
+                    WITH anchor AS (
+                        SELECT source_type, source_uri FROM documents WHERE id = %s
+                    )
+                    SELECT {_DOCUMENT_COLUMNS}
+                    FROM documents
+                    JOIN anchor USING (source_type, source_uri)
+                    ORDER BY revision
+                    """,
+                    (doc_id,),
+                )
+                return cur.fetchall()
 
     def add_chunks(self, chunks: List[Chunk]) -> int:
         if not chunks:

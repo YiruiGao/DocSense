@@ -31,7 +31,7 @@ help:
 	@echo "  make frontend-check   前端 lint + 生产构建"
 	@echo "  make test-unit        单元测试"
 	@echo "  make test-component   组件测试"
-	@echo "  make test-integration 集成测试（需要 POSTGRES_DSN）"
+	@echo "  make test-integration 集成测试（自动起停 test DB）"
 	@echo "  make ci               本地 CI 门禁（静态检查 + smoke + 单元 + 前端）"
 	@echo "  make clean            清理缓存和前端构建产物"
 
@@ -127,7 +127,11 @@ test-component:
 	cd backend && (.venv/bin/python -m pytest tests/component || python -m pytest tests/component)
 
 test-integration:
-	cd backend && (.venv/bin/python -m pytest tests/integration || python -m pytest tests/integration)
+	docker compose up -d --wait postgres-test
+	@export POSTGRES_DSN="postgresql://test:test@localhost:5433/testdb"; \
+	( cd backend && \
+	  (.venv/bin/python -m pytest tests/integration -v || python -m pytest tests/integration -v) \
+	); STATUS=$$?; docker compose stop postgres-test; exit $$STATUS
 
 ci: backend-static backend-smoke test-unit test-component frontend-check
 	@echo "✅ CI 完成"

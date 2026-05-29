@@ -66,6 +66,22 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  postgres-test:
+    image: pgvector/pgvector:pg16
+    environment:
+      - POSTGRES_USER=test
+      - POSTGRES_PASSWORD=test
+      - POSTGRES_DB=testdb
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d testdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   rag-data:
   pgdata:

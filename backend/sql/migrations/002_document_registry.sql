@@ -1,0 +1,16 @@
+-- Migration 002: Document Registry
+--
+-- All fields required by B2 (revision, status, acl_tags, published_at,
+-- superseded_by, created_by, updated_at, deleted_at) were included in the
+-- initial schema.sql (created during B1). No DDL changes are needed.
+--
+-- This file documents the intent: the documents table now serves as the
+-- authoritative document registry. The legacy documents_store.json is no
+-- longer used; all document metadata is read and written via Postgres.
+--
+-- Application-layer changes shipped with this migration:
+--   - source_uri uses filename (stable) instead of file_hash for revision chaining
+--   - Uploading the same filename with new content creates revision N+1 and
+--     archives revision N (status='archived', superseded_by=new_id)
+--   - GET /documents returns only status='published' AND deleted_at IS NULL
+--   - New endpoint: GET /documents/{id}/revisions

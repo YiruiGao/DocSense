@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 
-from app.api.documents import _diagnose_chunks_auto, _documents_store
+from app.api.documents import _diagnose_chunks_auto
 from app.evaluation import run_store
 from app.ops import badcase as badcase_store
 from app.ops import traces as trace_store
@@ -78,21 +78,17 @@ def _summarize_traces() -> Dict[str, Any]:
 
 
 def _summarize_knowledge_base() -> Dict[str, Any]:
-    user_documents = {
-        doc_id: document
-        for doc_id, document in _documents_store.items()
-        if document.namespace == "user"
-    }
+    user_documents = vector_store.list_documents(namespace="user")
     totals = {
         "document_count": len(user_documents),
-        "chunk_count": sum(document.chunk_count for document in user_documents.values()),
+        "chunk_count": sum(doc["chunk_count"] for doc in user_documents),
         "too_short_chunk_count": 0,
         "too_long_chunk_count": 0,
         "duplicate_pair_count": 0,
         "code_block_cut_count": 0,
         "empty_chunk_count": 0,
     }
-    for doc_id in user_documents:
+    for doc_id in (doc["id"] for doc in user_documents):
         chunks = vector_store.get_document_chunks(doc_id)
         diagnostics = _diagnose_chunks_auto(chunks)
         for key in [

@@ -71,6 +71,9 @@ class DocumentInfo(BaseModel):
     file_hash: Optional[str] = None
     namespace: str = "user"
     corpus_id: Optional[str] = None
+    revision: int = 1
+    status: str = "published"
+    superseded_by: Optional[str] = None
 
 
 class DocumentUploadResponse(BaseModel):
