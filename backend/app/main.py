@@ -13,6 +13,7 @@ from app.api.documents import router as documents_router
 from app.api.chat import router as chat_router
 from app.api.evaluation import router as evaluation_router
 from app.api.ops import router as ops_router
+from app.api.admin import router as admin_router
 
 # 初始化日志系统
 setup_logging(log_level=settings.log_level, log_dir=settings.log_dir)
@@ -42,6 +43,7 @@ app.include_router(documents_router, prefix="/documents", tags=["documents"])
 app.include_router(chat_router, prefix="/chat", tags=["chat"])
 app.include_router(evaluation_router, prefix="/evaluation", tags=["evaluation"])
 app.include_router(ops_router, prefix="/ops", tags=["ops"])
+app.include_router(admin_router, prefix="/admin", tags=["admin"])
 
 
 @app.middleware("http")

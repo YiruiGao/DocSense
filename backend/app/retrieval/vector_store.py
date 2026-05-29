@@ -7,6 +7,7 @@ first use and applies schema.sql automatically.
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -134,16 +135,22 @@ class VectorStore:
                 )
             conn.commit()
 
-    def find_published_by_source_uri(self, source_type: str, source_uri: str) -> Optional[Dict[str, Any]]:
-        """Return the currently published document for a given source_uri, or None."""
+    def find_latest_by_source_uri(self, source_type: str, source_uri: str) -> Optional[Dict[str, Any]]:
+        """Return the highest-revision document for a source_uri (any status, including soft-deleted), or None.
+
+        Soft-deleted and archived rows still occupy slots in the
+        `(source_type, source_uri, revision)` unique key, so callers must use this row's
+        revision to compute the next one. Callers check `status` / `deleted_at` (via the
+        extra column below) to decide hash-skip and predecessor archival.
+        """
         with self.pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(
                     f"""
-                    SELECT {_DOCUMENT_COLUMNS}
+                    SELECT {_DOCUMENT_COLUMNS},
+                           deleted_at IS NOT NULL AS is_deleted
                     FROM documents
                     WHERE source_type = %s AND source_uri = %s
-                      AND status = 'published' AND deleted_at IS NULL
                     ORDER BY revision DESC
                     LIMIT 1
                     """,
@@ -166,6 +173,89 @@ class VectorStore:
                     (superseded_by_id, doc_id),
                 )
             conn.commit()
+
+    def publish_document(self, doc_id: str, old_doc_id: Optional[str] = None) -> None:
+        """Atomically flip a draft document to published and optionally archive the predecessor."""
+        with self.pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE documents
+                       SET status = 'published', published_at = now(), updated_at = now()
+                     WHERE id = %s AND status = 'draft'
+                    """,
+                    (doc_id,),
+                )
+                if old_doc_id:
+                    cur.execute(
+                        """
+                        UPDATE documents
+                           SET status = 'archived', superseded_by = %s, updated_at = now()
+                         WHERE id = %s
+                        """,
+                        (doc_id, old_doc_id),
+                    )
+            conn.commit()
+
+    def soft_delete_revision_chain(self, doc_id: str) -> List[str]:
+        """Mark the document and all its revision siblings (same source_uri) as deleted.
+
+        Returns the list of affected document ids. Chunks stay in place as tombstones
+        and are physically removed later by `purge_archived_chunks` once retention expires.
+        """
+        with self.pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    WITH anchor AS (
+                        SELECT source_type, source_uri FROM documents WHERE id = %s
+                    )
+                    UPDATE documents d
+                       SET deleted_at = now(), updated_at = now()
+                      FROM anchor a
+                     WHERE d.source_type = a.source_type
+                       AND d.source_uri = a.source_uri
+                       AND d.deleted_at IS NULL
+                    RETURNING d.id::text
+                    """,
+                    (doc_id,),
+                )
+                affected = [r[0] for r in cur.fetchall()]
+            conn.commit()
+        return affected
+
+    def delete_draft(self, doc_id: str) -> None:
+        """Remove a draft document and its chunks (used to clean up after a failed ingest)."""
+        with self.pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM documents WHERE id = %s AND status = 'draft'", (doc_id,))
+            conn.commit()
+
+    def purge_archived_chunks(self, retention_days: int) -> Dict[str, Any]:
+        """Physically delete chunks for archived or soft-deleted documents past retention.
+
+        Document rows are kept as tombstones so revision history remains queryable.
+        Returns `{"chunks_deleted": int, "document_ids": List[str]}` so callers can
+        clean external artifacts (uploads, BM25) for the same docs.
+        """
+        cutoff = timedelta(days=retention_days)
+        with self.pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id::text FROM documents
+                    WHERE (status = 'archived' OR deleted_at IS NOT NULL)
+                      AND updated_at < now() - %s
+                    """,
+                    (cutoff,),
+                )
+                doc_ids = [r[0] for r in cur.fetchall()]
+                if not doc_ids:
+                    return {"chunks_deleted": 0, "document_ids": []}
+                cur.execute("DELETE FROM chunks WHERE document_id = ANY(%s)", (doc_ids,))
+                chunks_deleted = cur.rowcount or 0
+            conn.commit()
+        return {"chunks_deleted": chunks_deleted, "document_ids": doc_ids}
 
     def list_documents(
         self,
@@ -293,7 +383,7 @@ class VectorStore:
     ) -> List[Dict[str, Any]]:
         vec = np.asarray(query_embedding, dtype=np.float32)
 
-        conditions: List[str] = ["c.embedding IS NOT NULL"]
+        conditions: List[str] = ["c.embedding IS NOT NULL", "d.status = 'published'", "d.deleted_at IS NULL"]
         params: List[Any] = []
 
         if document_id:

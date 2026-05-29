@@ -76,6 +76,7 @@ class Settings(BaseSettings):
     postgres_dsn: Optional[str] = None
     postgres_pool_min: int = 1
     postgres_pool_max: int = 10
+    archived_retention_days: int = 7
 
     # 服务配置
     backend_host: str = "0.0.0.0"

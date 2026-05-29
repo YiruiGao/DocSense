@@ -177,7 +177,11 @@ def _hash_content(content: bytes) -> str:
 
 
 def _delete_document_artifacts(doc_id: str) -> dict:
-    """Delete indexed data, uploads, and query cache for a document."""
+    """Hard delete a single document's indexed data, uploads, and query cache.
+
+    Used for the evaluation namespace where re-index replaces content in place.
+    User-facing deletes go through `_soft_delete_chain` instead.
+    """
     vector_deleted = vector_store.delete_document(doc_id)
     bm25_deleted = bm25_search.remove_document(doc_id)
 
@@ -187,12 +191,36 @@ def _delete_document_artifacts(doc_id: str) -> dict:
         files_deleted += 1
         logger.debug(f"删除文件: {f}")
 
-    # Query cache keys are hashed by question/document. For a demo app, clearing all
-    # cached answers avoids stale citations after upload/delete without extra index state.
     _query_cache.clear()
 
     return {
         "vector_chunks_deleted": vector_deleted,
+        "bm25_chunks_deleted": bm25_deleted,
+        "files_deleted": files_deleted,
+    }
+
+
+def _soft_delete_chain(doc_id: str) -> dict:
+    """Soft-delete the document and all its revision siblings.
+
+    Postgres rows are tombstoned (deleted_at) and chunks remain until purge retention
+    expires — this preserves the audit trail. BM25 index entries and on-disk upload
+    files are removed immediately for all chain members.
+    """
+    affected_ids = vector_store.soft_delete_revision_chain(doc_id)
+
+    bm25_deleted = 0
+    files_deleted = 0
+    for did in affected_ids:
+        bm25_deleted += bm25_search.remove_document(did)
+        for f in settings.uploads_dir.glob(f"{did}_*"):
+            f.unlink()
+            files_deleted += 1
+
+    _query_cache.clear()
+
+    return {
+        "documents_soft_deleted": len(affected_ids),
         "bm25_chunks_deleted": bm25_deleted,
         "files_deleted": files_deleted,
     }
@@ -298,7 +326,7 @@ def index_evaluation_document(file_path: Path, corpus_id: str) -> DocumentInfo:
     file_hash = _hash_content(content)
     source_uri = f"evaluation://{file_name}"
 
-    existing = vector_store.find_published_by_source_uri("evaluation", source_uri)
+    existing = vector_store.find_latest_by_source_uri("evaluation", source_uri)
     if existing and existing["file_hash"] == file_hash:
         return _row_to_document_info(existing)
 
@@ -336,17 +364,21 @@ async def upload_document(file: UploadFile = File(...)):
     file_hash = _hash_content(content)
     source_uri = f"upload://{file.filename}"
 
-    existing = vector_store.find_published_by_source_uri("upload", source_uri)
+    existing = vector_store.find_latest_by_source_uri("upload", source_uri)
     revision = 1
     old_doc_id = None
 
     if existing:
-        if existing["file_hash"] == file_hash:
+        is_active_published = existing["status"] == "published" and not existing["is_deleted"]
+        if is_active_published and existing["file_hash"] == file_hash:
             logger.info(f"文件内容未变化，跳过重新索引: {existing['id']}")
             return DocumentUploadResponse(success=True, data=_row_to_document_info(existing))
         revision = existing["revision"] + 1
-        old_doc_id = existing["id"]
-        logger.info(f"检测到新版本，创建 revision {revision}，归档旧版本: {old_doc_id}")
+        if is_active_published:
+            old_doc_id = existing["id"]
+            logger.info(f"检测到新版本，创建 revision {revision}，归档旧版本: {old_doc_id}")
+        else:
+            logger.info(f"上一版本不可用（status={existing['status']}, deleted={existing['is_deleted']}），创建 revision {revision}")
 
     doc_id = str(uuid.uuid4())
     file_path = settings.uploads_dir / f"{doc_id}_{file.filename}"
@@ -417,25 +449,33 @@ async def upload_document(file: UploadFile = File(...)):
             created_at=time.strftime("%Y-%m-%d %H:%M:%S"),
             file_hash=file_hash,
             revision=revision,
+            status="draft",
         )
-        logger.debug("开始存储到向量数据库")
+        logger.debug("开始存储到向量数据库（draft）")
         vector_store.upsert_document(doc_info)
-        vector_store.add_chunks(chunks)
-        logger.info("向量存储完成")
 
-        # Archive the old revision after new one is committed
-        if old_doc_id:
-            vector_store.archive_document(old_doc_id, doc_id)
+        try:
+            vector_store.add_chunks(chunks)
+            logger.info("向量存储完成")
 
-        logger.debug("开始建立BM25索引")
-        bm25_search.add_documents(texts, metadatas, chunk_ids)
-        logger.info("BM25索引建立完成")
+            logger.debug("开始建立BM25索引")
+            bm25_search.add_documents(texts, metadatas, chunk_ids)
+            logger.info("BM25索引建立完成")
+
+            vector_store.publish_document(doc_id, old_doc_id)
+            if old_doc_id:
+                bm25_search.remove_document(old_doc_id)
+            logger.info(f"文档已发布: {doc_id}")
+        except Exception:
+            vector_store.delete_draft(doc_id)
+            raise
 
         _query_cache.clear()
 
         elapsed = time.time() - start_time
         logger.info(f"文档处理完成: {doc_id}, 总耗时: {elapsed:.2f}秒")
 
+        doc_info.status = "published"
         return DocumentUploadResponse(success=True, data=doc_info)
 
     except (PDFProcessingError, TextProcessingError) as e:
@@ -528,8 +568,8 @@ async def delete_document(doc_id: str):
         raise HTTPException(status_code=404, detail="文档不存在")
 
     try:
-        cleanup_result = _delete_document_artifacts(doc_id)
-        logger.info(f"文档删除成功: {doc_id}, cleanup={cleanup_result}")
+        cleanup_result = _soft_delete_chain(doc_id)
+        logger.info(f"文档软删除成功: {doc_id}, cleanup={cleanup_result}")
         return {"success": True, "message": "文档已删除", "data": cleanup_result}
     except Exception as e:
         logger.error(f"删除文档失败: {str(e)}")

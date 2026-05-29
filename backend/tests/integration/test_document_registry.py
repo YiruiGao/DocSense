@@ -56,11 +56,11 @@ def test_first_upload_creates_revision_1(store):
 
 
 def test_same_content_skipped_via_find(store):
-    """find_published_by_source_uri returns same hash → caller should skip re-index."""
+    """find_latest_by_source_uri returns same hash → caller should skip re-index."""
     doc = _doc("same_content.pdf", "stable_hash")
     store.upsert_document(doc)
 
-    existing = store.find_published_by_source_uri("upload", "upload://same_content.pdf")
+    existing = store.find_latest_by_source_uri("upload", "upload://same_content.pdf")
     assert existing is not None
     assert existing["file_hash"] == "stable_hash"
     assert existing["id"] == doc.id
@@ -71,7 +71,7 @@ def test_new_content_creates_revision_2(store):
     doc_v1 = _doc("evolving.txt", "hash_v1", revision=1)
     store.upsert_document(doc_v1)
 
-    existing = store.find_published_by_source_uri("upload", "upload://evolving.txt")
+    existing = store.find_latest_by_source_uri("upload", "upload://evolving.txt")
     assert existing is not None
 
     doc_v2 = _doc("evolving.txt", "hash_v2", revision=existing["revision"] + 1)
